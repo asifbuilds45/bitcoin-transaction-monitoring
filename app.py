@@ -1,8 +1,8 @@
 """
-Bitcoin Monitoring & Traffic Analysis Dashboard (High Performance Edition)
+Bitcoin Monitoring & Traffic Analysis Dashboard (Instant Tab & Fast Navigation Edition)
 NTRO Problem Statement 26146: AI-Powered Monitoring & Analysis of Bitcoin Transaction Traffic
 
-Optimized for instant, zero-lag page navigation in Streamlit.
+Optimized with instantaneous client-side tabs and precomputed in-memory state.
 """
 
 import os
@@ -36,7 +36,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom Cyber Dark Theme CSS
+# Custom Cyber Dark Theme CSS with Instant Tab Styling
 st.markdown("""
 <style>
     /* Metric Cards */
@@ -44,22 +44,46 @@ st.markdown("""
         background: linear-gradient(135deg, #131b2e 0%, #1e293b 100%);
         border: 1px solid #334155;
         border-radius: 10px;
-        padding: 16px 20px;
+        padding: 14px 18px;
         color: #f8fafc;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
     }
     .metric-title {
-        font-size: 0.85rem;
+        font-size: 0.8rem;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.05em;
         color: #94a3b8;
     }
     .metric-value {
-        font-size: 1.85rem;
+        font-size: 1.7rem;
         font-weight: 700;
         color: #38bdf8;
-        margin-top: 4px;
+        margin-top: 2px;
+    }
+    /* Tab Styling for Instant Switching */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: #0f172a;
+        padding: 8px;
+        border-radius: 8px;
+        border: 1px solid #1e293b;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 44px;
+        white-space: pre-wrap;
+        background-color: #1e293b;
+        border-radius: 6px;
+        color: #94a3b8;
+        font-weight: 600;
+        font-size: 0.88rem;
+        padding: 6px 14px;
+        transition: all 0.15s ease-in-out;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #0284c7 !important;
+        color: #ffffff !important;
+        font-weight: 700;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -70,10 +94,6 @@ st.markdown("""
 # -----------------------------------------------------------------------------
 @st.cache_resource(show_spinner="⚡ Initializing Bitcoin Sentinel Engine...")
 def get_system_context():
-    """
-    Executes the entire offline pipeline and precomputes all expensive operations
-    once. Avoids DataFrame hashing on page transitions for instant UI switching.
-    """
     # 1. Ingestion & Preprocessing
     raw_df = load_dataset()
     clean_df = preprocess_data(raw_df)
@@ -99,14 +119,14 @@ def get_system_context():
     correlator = EntityCorrelator(scored_df)
     graph_engine = BitcoinGraphEngine(scored_df)
     
-    # Precompute heavy graph metrics so Page 4 loads in 0 ms
+    # Precompute Graph Summary & High Degree Nodes
     graph_summary = graph_engine.get_graph_summary()
     high_degree_entities = graph_engine.get_high_degree_entities(top_n=10)
     
-    # Precompute ranked alerts so Page 6 loads in 0 ms
+    # Precompute Ranked Alerts
     ranked_alerts_full = generate_ranked_alerts(scored_df, min_risk="LOW")
     
-    # Precompute Page 1 Aggregations
+    # Precompute Summary KPIs
     total_tx = len(scored_df)
     detected_anom = int(scored_df['is_anomaly'].sum())
     normal_tx = total_tx - detected_anom
@@ -172,7 +192,7 @@ def get_system_context():
     }
 
 
-# Load full precomputed state (executes once in memory)
+# Load context
 ctx = get_system_context()
 scored_df = ctx["scored_df"]
 eval_results = ctx["eval_results"]
@@ -182,95 +202,72 @@ kpis = ctx["kpis"]
 
 
 # -----------------------------------------------------------------------------
-# SIDEBAR NAVIGATION (FAST & OFFLINE)
+# SIDEBAR CONTROLS
 # -----------------------------------------------------------------------------
 st.sidebar.markdown("""
 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
     <span style="font-size: 2.2rem;">🛡️</span>
     <div>
         <h2 style="margin: 0; font-size: 1.3rem; color: #f8fafc;">Bitcoin Sentinel</h2>
-        <span style="font-size: 0.75rem; color: #94a3b8;">NTRO PS 26146 Monitor</span>
+        <span style="font-size: 0.75rem; color: #94a3b8;">NTRO PS 26146 Prototype</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
 st.sidebar.markdown("---")
-page = st.sidebar.radio(
-    "Investigation Navigation",
-    [
-        "1. Overview & Executive KPIs",
-        "2. Transaction Investigation",
-        "3. IP-TXID-Wallet Correlation",
-        "4. Graph Analytics & Topology",
-        "5. AI Anomaly Analysis",
-        "6. Ranked Investigation Alerts",
-        "7. Prototype Evaluation"
-    ]
-)
+st.sidebar.subheader("Quick Stats")
+st.sidebar.metric("Monitored Transactions", f"{kpis['total_tx']:,}")
+st.sidebar.metric("AI Anomalies Detected", f"{kpis['detected_anom']:,}")
+st.sidebar.metric("Critical Alerts", f"{kpis['critical_alerts']:,}")
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("System Status")
-st.sidebar.success("Mode: Fully Offline (Fast)")
+st.sidebar.subheader("System Mode")
+st.sidebar.success("🟢 100% Offline Active")
 geoip_stat = scored_df['geoip_lookup_status'].iloc[0]
 if geoip_stat == "geoip_resolved":
-    st.sidebar.info("GeoIP: MaxMind MMDB Active")
+    st.sidebar.info("GeoIP: MaxMind MMDB")
 else:
-    st.sidebar.warning("GeoIP: Synthetic Fallback Active")
+    st.sidebar.warning("GeoIP: Synthetic Fallback")
 st.sidebar.caption("Defensive Cybersecurity Prototype")
 
 
+# -----------------------------------------------------------------------------
+# INSTANT CLIENT-SIDE TAB NAVIGATION (0 MS DELAY)
+# -----------------------------------------------------------------------------
+tabs = st.tabs([
+    "📊 1. Overview & KPIs",
+    "🔍 2. Transaction Investigation",
+    "🕸️ 3. IP-TXID-Wallet Correlation",
+    "📈 4. Graph Analytics",
+    "🤖 5. AI Anomaly Analysis",
+    "🚨 6. Ranked Alerts",
+    "🎯 7. Prototype Evaluation"
+])
+
+
 # =============================================================================
-# PAGE 1: OVERVIEW & EXECUTIVE KPIS
+# TAB 1: OVERVIEW & EXECUTIVE KPIS
 # =============================================================================
-if page == "1. Overview & Executive KPIs":
+with tabs[0]:
     st.title("🛡️ Cyber Monitoring & Anomaly Overview")
-    st.markdown(
-        "Real-time forensic monitoring dashboard tracking synthetic Bitcoin peer-to-peer "
-        "network broadcasts and on-chain transaction flows."
-    )
+    st.caption("Real-time forensic monitoring tracking synthetic Bitcoin P2P network traffic and on-chain UTXO transfers.")
 
-    # Executive Metric Cards
+    # KPI Metric Cards
     col1, col2, col3, col4, col5 = st.columns(5)
-    
     with col1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-title">Total Records</div>
-            <div class="metric-value">{kpis['total_tx']:,}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="metric-card"><div class="metric-title">Total Records</div><div class="metric-value">{kpis['total_tx']:,}</div></div>""", unsafe_allow_html=True)
     with col2:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-title">Baseline Normal</div>
-            <div class="metric-value" style="color: #22c55e;">{kpis['normal_tx']:,}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="metric-card"><div class="metric-title">Normal Traffic</div><div class="metric-value" style="color: #22c55e;">{kpis['normal_tx']:,}</div></div>""", unsafe_allow_html=True)
     with col3:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-title">AI Anomalies</div>
-            <div class="metric-value" style="color: #f59e0b;">{kpis['detected_anom']:,}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="metric-card"><div class="metric-title">AI Anomalies</div><div class="metric-value" style="color: #f59e0b;">{kpis['detected_anom']:,}</div></div>""", unsafe_allow_html=True)
     with col4:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-title">High Risk Alerts</div>
-            <div class="metric-value" style="color: #f97316;">{kpis['high_alerts']:,}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="metric-card"><div class="metric-title">High Risk</div><div class="metric-value" style="color: #f97316;">{kpis['high_alerts']:,}</div></div>""", unsafe_allow_html=True)
     with col5:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-title">Critical Alerts</div>
-            <div class="metric-value" style="color: #ef4444;">{kpis['critical_alerts']:,}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="metric-card"><div class="metric-title">Critical Risk</div><div class="metric-value" style="color: #ef4444;">{kpis['critical_alerts']:,}</div></div>""", unsafe_allow_html=True)
 
-    st.markdown("---")
+    st.markdown("<div style='height: 15px;'></div>", unsafe_allow_html=True)
 
-    # Row 1 Charts: Anomaly Distribution & Risk Tiers
+    # Row 1 Charts
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("AI Anomaly Classification Breakdown")
@@ -282,7 +279,7 @@ if page == "1. Overview & Executive KPIs":
             color_discrete_map={"Normal Traffic": "#10b981", "Detected Anomalies": "#f43f5e"},
             hole=0.45
         )
-        fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20), template="plotly_dark")
+        fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20), template="plotly_dark", height=320)
         st.plotly_chart(fig_pie, use_container_width=True)
 
     with c2:
@@ -295,10 +292,10 @@ if page == "1. Overview & Executive KPIs":
             color_discrete_map={'LOW': '#22c55e', 'MEDIUM': '#eab308', 'HIGH': '#f97316', 'CRITICAL': '#ef4444'},
             text_auto=True
         )
-        fig_bar.update_layout(margin=dict(t=20, b=20, l=20, r=20), template="plotly_dark")
+        fig_bar.update_layout(margin=dict(t=20, b=20, l=20, r=20), template="plotly_dark", height=320)
         st.plotly_chart(fig_bar, use_container_width=True)
 
-    # Row 2 Charts: Geographic Traffic & Temporal Volume
+    # Row 2 Charts
     c3, c4 = st.columns(2)
     with c3:
         st.subheader("Source Country Activity & Risk Profile")
@@ -310,11 +307,11 @@ if page == "1. Overview & Executive KPIs":
             labels={'value': 'Transactions', 'src_country': 'Country Code', 'variable': 'Category'},
             color_discrete_map={'total_tx': '#38bdf8', 'high_risk': '#ef4444'}
         )
-        fig_country.update_layout(margin=dict(t=20, b=20, l=20, r=20), template="plotly_dark")
+        fig_country.update_layout(margin=dict(t=20, b=20, l=20, r=20), template="plotly_dark", height=320)
         st.plotly_chart(fig_country, use_container_width=True)
 
     with c4:
-        st.subheader("Temporal Transaction Velocity & Anomaly Occurrence")
+        st.subheader("Temporal Transaction Velocity & Anomalies")
         fig_time = px.line(
             kpis['time_df'],
             x='timestamp',
@@ -322,14 +319,14 @@ if page == "1. Overview & Executive KPIs":
             labels={'value': 'Weekly Transactions', 'timestamp': 'Date', 'variable': 'Metric'},
             color_discrete_map={'total': '#38bdf8', 'anomalies': '#f43f5e'}
         )
-        fig_time.update_layout(margin=dict(t=20, b=20, l=20, r=20), template="plotly_dark")
+        fig_time.update_layout(margin=dict(t=20, b=20, l=20, r=20), template="plotly_dark", height=320)
         st.plotly_chart(fig_time, use_container_width=True)
 
     # Top Suspicious Entities Table
-    st.subheader("Top Suspicious Entities Requiring Prioritized Review")
+    st.subheader("Top Suspicious Entities Requiring Review")
     col_t1, col_t2 = st.columns(2)
     with col_t1:
-        st.caption("Top Suspicious Source IPs (by High/Critical Risk TX Count)")
+        st.caption("Top Suspicious Source IPs (by High/Critical Risk Count)")
         st.dataframe(kpis['top_ips'], use_container_width=True, hide_index=True)
 
     with col_t2:
@@ -338,70 +335,49 @@ if page == "1. Overview & Executive KPIs":
 
 
 # =============================================================================
-# PAGE 2: TRANSACTION INVESTIGATION
+# TAB 2: TRANSACTION INVESTIGATION
 # =============================================================================
-elif page == "2. Transaction Investigation":
+with tabs[1]:
     st.title("🔍 Forensic Transaction Deep-Dive")
-    st.markdown("Inspect granular network packet telemetry, on-chain UTXO attributes, and AI-generated risk rationales.")
+    st.caption("Inspect granular network packet telemetry, on-chain UTXO attributes, and AI-generated risk rationales.")
 
     # Search & Filter Controls
-    f_col1, f_col2, f_col3, f_col4 = st.columns(4)
+    f_col1, f_col2, f_col3 = st.columns([1, 1, 2])
     with f_col1:
-        risk_filter = st.selectbox("Filter Risk Level", ["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW"])
+        risk_filter = st.selectbox("Filter Risk Tier", ["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW"], key="tab2_risk")
     with f_col2:
-        search_txid = st.text_input("Search TXID", placeholder="e.g. TX10000137").strip()
+        search_txid = st.text_input("Quick TXID Search", placeholder="e.g. TX10000137", key="tab2_search").strip()
     with f_col3:
-        search_wallet = st.text_input("Search Wallet", placeholder="e.g. W000050").strip()
-    with f_col4:
-        search_ip = st.text_input("Search IP Address", placeholder="e.g. 10.11.20.2").strip()
+        filtered_df = scored_df
+        if risk_filter != "ALL":
+            filtered_df = filtered_df[filtered_df['risk_level'] == risk_filter]
+        if search_txid:
+            filtered_df = filtered_df[filtered_df['txid'].str.contains(search_txid, case=False, na=False)]
+        
+        txid_options = filtered_df['txid'].head(50).tolist() if not filtered_df.empty else []
+        selected_txid = st.selectbox("Select Transaction to Inspect", txid_options if txid_options else ["None Found"])
 
-    filtered_df = scored_df
-    if risk_filter != "ALL":
-        filtered_df = filtered_df[filtered_df['risk_level'] == risk_filter]
-    if search_txid:
-        filtered_df = filtered_df[filtered_df['txid'].str.contains(search_txid, case=False, na=False)]
-    if search_wallet:
-        filtered_df = filtered_df[
-            filtered_df['source_wallet'].str.contains(search_wallet, case=False, na=False) |
-            filtered_df['destination_wallet'].str.contains(search_wallet, case=False, na=False)
-        ]
-    if search_ip:
-        filtered_df = filtered_df[
-            filtered_df['src_ip'].str.contains(search_ip, na=False) |
-            filtered_df['dst_ip'].str.contains(search_ip, na=False)
-        ]
-
-    st.write(f"Showing **{len(filtered_df):,}** matching transactions.")
-    
-    if filtered_df.empty:
+    if filtered_df.empty or selected_txid == "None Found":
         st.warning("No transactions match the specified search parameters.")
     else:
-        txid_options = filtered_df['txid'].head(100).tolist()
-        selected_txid = st.selectbox("Select Transaction for Full Forensic Breakdown", txid_options)
-        
         tx_row = scored_df[scored_df['txid'] == selected_txid].iloc[0]
 
-        risk_color_map = {
-            "CRITICAL": "#ef4444",
-            "HIGH": "#f97316",
-            "MEDIUM": "#eab308",
-            "LOW": "#22c55e"
-        }
+        risk_color_map = {"CRITICAL": "#ef4444", "HIGH": "#f97316", "MEDIUM": "#eab308", "LOW": "#22c55e"}
         r_level = tx_row['risk_level']
         badge_color = risk_color_map.get(r_level, "#3b82f6")
 
         st.markdown(f"""
-        <div style="background: #1e293b; border-left: 6px solid {badge_color}; padding: 16px 20px; border-radius: 8px; margin-bottom: 20px;">
+        <div style="background: #1e293b; border-left: 6px solid {badge_color}; padding: 14px 18px; border-radius: 8px; margin: 12px 0 16px 0;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
-                    <span style="font-size: 1.2rem; font-weight: 700; color: #f8fafc;">Transaction: {tx_row['txid']}</span>
-                    <span style="background-color: {badge_color}; color: white; padding: 4px 10px; border-radius: 4px; font-weight: bold; margin-left: 12px; font-size: 0.9rem;">
+                    <span style="font-size: 1.15rem; font-weight: 700; color: #f8fafc;">TXID: {tx_row['txid']}</span>
+                    <span style="background-color: {badge_color}; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; margin-left: 10px; font-size: 0.85rem;">
                         {r_level} RISK
                     </span>
                 </div>
                 <div>
-                    <span style="font-size: 1.1rem; color: #94a3b8; margin-right: 15px;">Composite Risk Score: <strong style="color: {badge_color}; font-size: 1.3rem;">{tx_row['risk_score']}/100</strong></span>
-                    <span style="font-size: 1.1rem; color: #94a3b8;">AI Anomaly Score: <strong style="color: #38bdf8;">{tx_row['anomaly_score']:.3f}</strong></span>
+                    <span style="font-size: 1rem; color: #94a3b8; margin-right: 15px;">Risk Score: <strong style="color: {badge_color}; font-size: 1.2rem;">{tx_row['risk_score']}/100</strong></span>
+                    <span style="font-size: 1rem; color: #94a3b8;">AI Score: <strong style="color: #38bdf8;">{tx_row['anomaly_score']:.3f}</strong></span>
                 </div>
             </div>
         </div>
@@ -417,95 +393,67 @@ elif page == "2. Transaction Investigation":
         col_left, col_right = st.columns(2)
 
         with col_left:
-            st.subheader("🌐 Network Telemetry & Offline GeoIP Enrichment")
-            st.caption("Layer 3/4 P2P Broadcast Metadata & Local GeoIP Resolution")
-            
-            geo_status_badge = (
-                "🟢 Resolved from MaxMind MMDB" if tx_row['geoip_lookup_status'] == "geoip_resolved"
-                else "🟡 Offline Synthetic Fallback (Private IP)"
-            )
+            st.subheader("🌐 Network Telemetry & GeoIP")
+            geo_status_badge = "🟢 Resolved (MaxMind MMDB)" if tx_row['geoip_lookup_status'] == "geoip_resolved" else "🟡 Synthetic Fallback (Private IP)"
             st.info(f"**GeoIP Status:** {geo_status_badge}")
             
             net_data = {
                 "Source IP": tx_row['src_ip'],
                 "Destination IP": tx_row['dst_ip'],
-                "Source Port / Dest Port": f"{tx_row['src_port']} / {tx_row['dst_port']}",
+                "Source / Dest Port": f"{tx_row['src_port']} / {tx_row['dst_port']}",
                 "Network Protocol": tx_row['protocol'],
                 "Network Timestamp": str(tx_row['network_timestamp']),
-                "Connection Duration": f"{tx_row['connection_duration_sec']} seconds",
-                "Packet Count": f"{tx_row['packet_count']:,} packets",
-                "Bytes Transferred": f"{tx_row['bytes_transferred']:,} bytes",
-                "Source Country (GeoIP)": tx_row['geoip_src_country'],
-                "Destination Country (GeoIP)": tx_row['geoip_dst_country'],
-                "Source ASN / Org": tx_row['geoip_src_asn'],
-                "Destination ASN / Org": tx_row['geoip_dst_asn']
+                "Connection Duration": f"{tx_row['connection_duration_sec']}s",
+                "Packets / Bytes": f"{tx_row['packet_count']:,} pkts ({int(tx_row['bytes_transferred']/1024):,} KB)",
+                "Source GeoIP Country": tx_row['geoip_src_country'],
+                "Destination GeoIP Country": tx_row['geoip_dst_country'],
+                "Source ASN": tx_row['geoip_src_asn']
             }
-            st.table(pd.DataFrame(list(net_data.items()), columns=["Network Attribute", "Value"]))
+            st.table(pd.DataFrame(list(net_data.items()), columns=["Attribute", "Value"]))
 
         with col_right:
-            st.subheader("⛓️ Blockchain Layer & UTXO Structure")
-            st.caption("Layer 7 On-Chain State & Financial Transfer Metrics")
-            
+            st.subheader("⛓️ Blockchain Layer & UTXO")
             chain_data = {
                 "Block Height": str(tx_row['block_height']),
                 "Block Timestamp": str(tx_row['timestamp']),
                 "Source Wallet Entity": tx_row['source_wallet'],
                 "Destination Wallet Entity": tx_row['destination_wallet'],
-                "Total Transferred Volume": f"{tx_row['total_output_amount_btc']:.6f} BTC",
-                "Miner Transaction Fee": f"{tx_row['fee_btc']:.6f} BTC",
-                "Number of Inputs / Outputs": f"{tx_row['num_inputs']} inputs / {tx_row['num_outputs']} outputs",
+                "Transferred Volume": f"{tx_row['total_output_amount_btc']:.6f} BTC",
+                "Miner Fee": f"{tx_row['fee_btc']:.6f} BTC",
+                "Inputs / Outputs": f"{tx_row['num_inputs']} in / {tx_row['num_outputs']} out",
                 "Script Type": tx_row['script_type'],
                 "Wallet Graph Degree": str(tx_row['wallet_degree']),
-                "24-Hour Velocity": f"{tx_row['transaction_frequency_24h']} tx / 24h",
-                "Average Time Gap": f"{tx_row['avg_time_gap_min']:.2f} minutes",
-                "Associated Unique IPs": str(tx_row['unique_ip_count'])
+                "24h Velocity": f"{tx_row['transaction_frequency_24h']} tx/24h",
+                "Inter-tx Time Gap": f"{tx_row['avg_time_gap_min']:.2f} min"
             }
-            st.table(pd.DataFrame(list(chain_data.items()), columns=["Blockchain Attribute", "Value"]))
-
-        with st.expander("View Granular Participating UTXO Input/Output Addresses"):
-            u_col1, u_col2 = st.columns(2)
-            with u_col1:
-                st.write("**Input Addresses & Amounts:**")
-                in_addrs = str(tx_row['input_addresses']).split('|')
-                in_amts = str(tx_row['input_amounts']).split('|')
-                in_df = pd.DataFrame({"Address": in_addrs, "Amount (BTC)": in_amts})
-                st.dataframe(in_df, use_container_width=True, hide_index=True)
-            with u_col2:
-                st.write("**Output Addresses & Amounts:**")
-                out_addrs = str(tx_row['output_addresses']).split('|')
-                out_amts = str(tx_row['output_amounts']).split('|')
-                out_df = pd.DataFrame({"Address": out_addrs, "Amount (BTC)": out_amts})
-                st.dataframe(out_df, use_container_width=True, hide_index=True)
+            st.table(pd.DataFrame(list(chain_data.items()), columns=["Attribute", "Value"]))
 
 
 # =============================================================================
-# PAGE 3: IP–TXID–WALLET CORRELATION GRAPH
+# TAB 3: IP–TXID–WALLET CORRELATION GRAPH
 # =============================================================================
-elif page == "3. IP-TXID-Wallet Correlation":
+with tabs[2]:
     st.title("🕸️ IP–TXID–Wallet Multi-Modal Correlation")
-    st.markdown(
-        "Interactive topological correlation linking network vantage points (IPs) to "
-        "cryptographic transactions (TXIDs) and economic entities (Wallets)."
-    )
+    st.caption("Interactive topological graph linking network vantage points (IPs) to transactions (TXIDs) and wallets.")
 
     g_col1, g_col2 = st.columns([1, 3])
 
     with g_col1:
         st.subheader("Subgraph Focus")
-        focus_entity_type = st.radio("Focus Node Type", ["TXID", "Wallet", "IP"])
+        focus_entity_type = st.radio("Focus Node Type", ["TXID", "Wallet", "IP"], key="tab3_type")
         
         if focus_entity_type == "TXID":
             default_val = scored_df[scored_df['risk_level'] == 'CRITICAL']['txid'].iloc[0]
-            selected_focus = st.text_input("Enter TXID", value=default_val).strip()
+            selected_focus = st.text_input("Enter TXID", value=default_val, key="tab3_tx").strip()
         elif focus_entity_type == "Wallet":
             default_val = scored_df[scored_df['risk_level'] == 'CRITICAL']['source_wallet'].iloc[0]
-            selected_focus = st.text_input("Enter Wallet ID", value=default_val).strip()
+            selected_focus = st.text_input("Enter Wallet ID", value=default_val, key="tab3_w").strip()
         else:
             default_val = scored_df[scored_df['risk_level'] == 'CRITICAL']['src_ip'].iloc[0]
-            selected_focus = st.text_input("Enter IP Address", value=default_val).strip()
+            selected_focus = st.text_input("Enter IP Address", value=default_val, key="tab3_ip").strip()
 
-        hop_radius = st.slider("Graph Exploration Radius (Hops)", 1, 3, 2)
-        max_nodes_display = st.slider("Max Nodes to Render", 10, 60, 35)
+        hop_radius = st.slider("Exploration Radius (Hops)", 1, 3, 2, key="tab3_hop")
+        max_nodes_display = st.slider("Max Nodes to Render", 10, 60, 30, key="tab3_nodes")
 
     with g_col2:
         sub_g = graph_engine.extract_subgraph(selected_focus, radius=hop_radius, max_nodes=max_nodes_display)
@@ -514,8 +462,7 @@ elif page == "3. IP-TXID-Wallet Correlation":
             st.warning(f"Entity '{selected_focus}' was not found in the transaction graph.")
         else:
             st.caption(f"Visualizing ego subgraph around **{selected_focus}** ({sub_g.number_of_nodes()} nodes, {sub_g.number_of_edges()} edges)")
-            
-            pos = nx.spring_layout(sub_g, seed=42, k=0.6, iterations=30)
+            pos = nx.spring_layout(sub_g, seed=42, k=0.6, iterations=25)
 
             node_x_ip, node_y_ip, text_ip = [], [], []
             node_x_tx, node_y_tx, text_tx = [], [], []
@@ -527,11 +474,11 @@ elif page == "3. IP-TXID-Wallet Correlation":
                 if n_type == 'IP':
                     node_x_ip.append(x)
                     node_y_ip.append(y)
-                    text_ip.append(f"<b>IP:</b> {node}<br>Geo: {attr.get('country', '')} ({attr.get('asn', '')})")
+                    text_ip.append(f"<b>IP:</b> {node}<br>Geo: {attr.get('country', '')}")
                 elif n_type == 'TXID':
                     node_x_tx.append(x)
                     node_y_tx.append(y)
-                    text_tx.append(f"<b>TXID:</b> {node}<br>Amount: {attr.get('amount_btc', 0):.4f} BTC<br>Risk: {attr.get('risk_level', 'UNKNOWN')}")
+                    text_tx.append(f"<b>TXID:</b> {node}<br>Amount: {attr.get('amount_btc', 0):.4f} BTC")
                 else:
                     node_x_w.append(x)
                     node_y_w.append(y)
@@ -545,85 +492,27 @@ elif page == "3. IP-TXID-Wallet Correlation":
                 edge_y.extend([y0, y1, None])
 
             fig_graph = go.Figure()
-
-            fig_graph.add_trace(go.Scatter(
-                x=edge_x, y=edge_y,
-                line=dict(width=1.2, color="#64748b"),
-                hoverinfo='none',
-                mode='lines',
-                name='Connections'
-            ))
+            fig_graph.add_trace(go.Scatter(x=edge_x, y=edge_y, line=dict(width=1.2, color="#64748b"), hoverinfo='none', mode='lines', name='Links'))
 
             if node_x_ip:
-                fig_graph.add_trace(go.Scatter(
-                    x=node_x_ip, y=node_y_ip,
-                    mode='markers+text',
-                    textposition="top center",
-                    hoverinfo='text',
-                    text=[t.split('<br>')[0].replace('<b>IP:</b> ', '') for t in text_ip],
-                    hovertext=text_ip,
-                    marker=dict(size=20, color='#06b6d4', symbol='square', line=dict(width=2, color='#ffffff')),
-                    name='IP Address'
-                ))
-
+                fig_graph.add_trace(go.Scatter(x=node_x_ip, y=node_y_ip, mode='markers+text', textposition="top center", hoverinfo='text', text=[t.split('<br>')[0].replace('<b>IP:</b> ', '') for t in text_ip], hovertext=text_ip, marker=dict(size=18, color='#06b6d4', symbol='square', line=dict(width=2, color='#ffffff')), name='IP Address'))
             if node_x_tx:
-                fig_graph.add_trace(go.Scatter(
-                    x=node_x_tx, y=node_y_tx,
-                    mode='markers',
-                    hoverinfo='text',
-                    hovertext=text_tx,
-                    marker=dict(size=16, color='#f97316', symbol='circle', line=dict(width=2, color='#ffffff')),
-                    name='Transaction (TXID)'
-                ))
-
+                fig_graph.add_trace(go.Scatter(x=node_x_tx, y=node_y_tx, mode='markers', hoverinfo='text', hovertext=text_tx, marker=dict(size=14, color='#f97316', symbol='circle', line=dict(width=2, color='#ffffff')), name='TXID'))
             if node_x_w:
-                fig_graph.add_trace(go.Scatter(
-                    x=node_x_w, y=node_y_w,
-                    mode='markers+text',
-                    textposition="top center",
-                    hoverinfo='text',
-                    text=[t.split('<br>')[0].replace('<b>Wallet:</b> ', '') for t in text_w],
-                    hovertext=text_w,
-                    marker=dict(size=18, color='#10b981', symbol='hexagon', line=dict(width=2, color='#ffffff')),
-                    name='Wallet Entity'
-                ))
+                fig_graph.add_trace(go.Scatter(x=node_x_w, y=node_y_w, mode='markers+text', textposition="top center", hoverinfo='text', text=[t.split('<br>')[0].replace('<b>Wallet:</b> ', '') for t in text_w], hovertext=text_w, marker=dict(size=16, color='#10b981', symbol='hexagon', line=dict(width=2, color='#ffffff')), name='Wallet'))
 
-            fig_graph.update_layout(
-                template="plotly_dark",
-                showlegend=True,
-                hovermode='closest',
-                margin=dict(b=20, l=20, r=20, t=20),
-                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                height=550
-            )
-
+            fig_graph.update_layout(template="plotly_dark", showlegend=True, hovermode='closest', margin=dict(b=10, l=10, r=10, t=10), xaxis=dict(showgrid=False, zeroline=False, showticklabels=False), yaxis=dict(showgrid=False, zeroline=False, showticklabels=False), height=480)
             st.plotly_chart(fig_graph, use_container_width=True)
 
-    st.subheader("Entity Correlation Profile")
-    if focus_entity_type == "IP":
-        ip_data = correlator.get_ip_correlations(selected_focus)
-        cp1, cp2, cp3 = st.columns(3)
-        cp1.metric("Total Transactions Relayed", ip_data.get('transaction_count', 0))
-        cp2.metric("Distinct Wallets Broadcast", ip_data.get('unique_wallets_count', 0))
-        cp3.metric("Total BTC Volume Broadcast", f"{ip_data.get('total_btc_volume', 0):.4f} BTC")
-    elif focus_entity_type == "Wallet":
-        w_data = correlator.get_wallet_correlations(selected_focus)
-        cp1, cp2, cp3 = st.columns(3)
-        cp1.metric("Total Wallet Transactions", w_data.get('total_transactions', 0))
-        cp2.metric("Originating IP Vantage Points", w_data.get('unique_ip_count', 0))
-        cp3.metric("Counterparty Wallets Reached", w_data.get('counterparty_count', 0))
-
 
 # =============================================================================
-# PAGE 4: GRAPH ANALYTICS & TOPOLOGY (FAST - USES PRECOMPUTED SUMMARY)
+# TAB 4: GRAPH ANALYTICS
 # =============================================================================
-elif page == "4. Graph Analytics & Topology":
-    st.title("📊 Network Topology & Graph Analytics")
-    st.markdown("Macro graph metrics, centrality distributions, and hub entity identification.")
+with tabs[3]:
+    st.title("📊 Network Topology & Graph Centrality")
+    st.caption("Macro graph metrics, centrality distributions, and hub entity identification.")
 
     g_summary = ctx["graph_summary"]
-    
     col_g1, col_g2, col_g3, col_g4 = st.columns(4)
     col_g1.metric("Total Graph Nodes", f"{g_summary['total_nodes']:,}")
     col_g2.metric("Total Directed Edges", f"{g_summary['total_edges']:,}")
@@ -631,126 +520,70 @@ elif page == "4. Graph Analytics & Topology":
     col_g4.metric("Unique Wallet Nodes", f"{g_summary['wallet_nodes']:,}")
 
     st.markdown("---")
-
     high_deg = ctx["high_degree_entities"]
 
     hd1, hd2 = st.columns(2)
     with hd1:
         st.subheader("Top High-Degree Broadcast IPs (Hub Vantage Points)")
         ip_deg_df = pd.DataFrame(high_deg['top_ips'])
-        fig_ip_deg = px.bar(
-            ip_deg_df,
-            x='degree',
-            y='entity',
-            orientation='h',
-            labels={'degree': 'Node Degree (Connections)', 'entity': 'IP Address'},
-            color='degree',
-            color_continuous_scale='tealgrn'
-        )
-        fig_ip_deg.update_layout(template="plotly_dark", yaxis=dict(autorange="reversed"))
+        fig_ip_deg = px.bar(ip_deg_df, x='degree', y='entity', orientation='h', labels={'degree': 'Connections', 'entity': 'IP Address'}, color='degree', color_continuous_scale='tealgrn')
+        fig_ip_deg.update_layout(template="plotly_dark", yaxis=dict(autorange="reversed"), height=320)
         st.plotly_chart(fig_ip_deg, use_container_width=True)
 
     with hd2:
-        st.subheader("Top High-Degree Wallets (Financial Aggregation Hubs)")
+        st.subheader("Top High-Degree Wallets (Financial Hubs)")
         w_deg_df = pd.DataFrame(high_deg['top_wallets'])
-        fig_w_deg = px.bar(
-            w_deg_df,
-            x='degree',
-            y='entity',
-            orientation='h',
-            labels={'degree': 'Node Degree (Connections)', 'entity': 'Wallet ID'},
-            color='degree',
-            color_continuous_scale='purples'
-        )
-        fig_w_deg.update_layout(template="plotly_dark", yaxis=dict(autorange="reversed"))
+        fig_w_deg = px.bar(w_deg_df, x='degree', y='entity', orientation='h', labels={'degree': 'Connections', 'entity': 'Wallet ID'}, color='degree', color_continuous_scale='purples')
+        fig_w_deg.update_layout(template="plotly_dark", yaxis=dict(autorange="reversed"), height=320)
         st.plotly_chart(fig_w_deg, use_container_width=True)
 
     st.subheader("Wallet Degree & Connectivity Distribution")
-    fig_deg_dist = px.histogram(
-        scored_df,
-        x='wallet_degree',
-        color='risk_level',
-        nbins=40,
-        labels={'wallet_degree': 'Wallet Graph Degree', 'count': 'Transaction Count'},
-        color_discrete_map={'LOW': '#22c55e', 'MEDIUM': '#eab308', 'HIGH': '#f97316', 'CRITICAL': '#ef4444'}
-    )
-    fig_deg_dist.update_layout(template="plotly_dark")
+    fig_deg_dist = px.histogram(scored_df.sample(min(2000, len(scored_df)), random_state=42), x='wallet_degree', color='risk_level', nbins=30, labels={'wallet_degree': 'Wallet Degree', 'count': 'Count'}, color_discrete_map={'LOW': '#22c55e', 'MEDIUM': '#eab308', 'HIGH': '#f97316', 'CRITICAL': '#ef4444'})
+    fig_deg_dist.update_layout(template="plotly_dark", height=300)
     st.plotly_chart(fig_deg_dist, use_container_width=True)
 
 
 # =============================================================================
-# PAGE 5: AI ANOMALY ANALYSIS
+# TAB 5: AI ANOMALY ANALYSIS
 # =============================================================================
-elif page == "5. AI Anomaly Analysis":
+with tabs[4]:
     st.title("🤖 Unsupervised AI Anomaly Detection (Isolation Forest)")
-    st.markdown(
-        "In-depth analysis of the unsupervised machine learning engine isolating anomalous "
-        "network behavior without relying on prior attack signatures or labels."
-    )
+    st.caption("In-depth analysis of the unsupervised machine learning engine isolating anomalous network behavior.")
 
     with st.expander("ℹ️ Why Isolation Forest for Bitcoin Network Anomaly Detection?", expanded=True):
         st.markdown("""
-        - **100% Unsupervised:** In real-world monitoring, new attack patterns (peeling chains, mixer bursts) lack pre-existing labels. Isolation Forest requires zero labeled training data.
-        - **Isolation Principle:** Anomalous data points have rare attribute combinations and require fewer random recursive splits to isolate in feature space compared to dense normal clusters.
-        - **Multi-Modal Fusion:** Jointly inspects network flow rates (packets, duration) and on-chain UTXO shape (degree, frequency, inputs/outputs).
-        - **Offline & Performant:** Highly scalable with $O(n \\log n)$ time complexity, enabling local real-time inference on 10,000+ records in milliseconds.
+        - **100% Unsupervised:** Operates with zero pre-labeled attack data.
+        - **Isolation Principle:** Anomalous data points have rare attribute combinations and require fewer random splits to isolate.
+        - **Multi-Modal Fusion:** Jointly inspects network flow rates (packets, duration) and on-chain UTXO shape.
         - **Zero Leakage:** Evaluated strictly after prediction without ever consuming `ground_truth` or `scenario` labels.
         """)
 
+    anom_sample = scored_df.sample(min(2000, len(scored_df)), random_state=42)
     st.subheader("Normalized Anomaly Score Distribution (0.0 to 1.0)")
-    fig_score_dist = px.histogram(
-        scored_df,
-        x='anomaly_score',
-        color='is_anomaly',
-        nbins=50,
-        labels={'anomaly_score': 'Normalized Anomaly Score (Higher = More Anomalous)', 'is_anomaly': 'AI Flagged (1=Anomaly)'},
-        color_discrete_map={0: '#10b981', 1: '#f43f5e'},
-        marginal="box"
-    )
-    fig_score_dist.update_layout(template="plotly_dark")
+    fig_score_dist = px.histogram(anom_sample, x='anomaly_score', color='is_anomaly', nbins=40, labels={'anomaly_score': 'Normalized Anomaly Score', 'is_anomaly': 'AI Flagged'}, color_discrete_map={0: '#10b981', 1: '#f43f5e'})
+    fig_score_dist.update_layout(template="plotly_dark", height=300)
     st.plotly_chart(fig_score_dist, use_container_width=True)
 
     st.markdown("---")
-
-    st.subheader("Feature Discrepancy Analysis (Normal Baseline vs Anomaly)")
-    feature_to_compare = st.selectbox(
-        "Select Feature for Distribution Comparison",
-        [
-            "transaction_frequency_24h",
-            "avg_time_gap_min",
-            "wallet_degree",
-            "unique_ip_count",
-            "country_count",
-            "packet_count",
-            "bytes_transferred",
-            "num_outputs"
-        ]
-    )
-
-    fig_feat_box = px.box(
-        scored_df,
-        x='is_anomaly',
-        y=feature_to_compare,
-        color='is_anomaly',
-        labels={'is_anomaly': 'Predicted Anomaly (0=Normal, 1=Anomaly)', feature_to_compare: feature_to_compare},
-        color_discrete_map={0: '#10b981', 1: '#f43f5e'}
-    )
-    fig_feat_box.update_layout(template="plotly_dark")
+    st.subheader("Feature Discrepancy Analysis (Normal vs Anomaly)")
+    feature_to_compare = st.selectbox("Select Feature to Compare", ["transaction_frequency_24h", "avg_time_gap_min", "wallet_degree", "unique_ip_count", "packet_count", "bytes_transferred", "num_outputs"], key="tab5_feat")
+    fig_feat_box = px.box(anom_sample, x='is_anomaly', y=feature_to_compare, color='is_anomaly', labels={'is_anomaly': 'Predicted Anomaly (0=Normal, 1=Anomaly)', feature_to_compare: feature_to_compare}, color_discrete_map={0: '#10b981', 1: '#f43f5e'})
+    fig_feat_box.update_layout(template="plotly_dark", height=300)
     st.plotly_chart(fig_feat_box, use_container_width=True)
 
 
 # =============================================================================
-# PAGE 6: RANKED INVESTIGATION ALERTS (FAST - USES PRECOMPUTED ALERTS)
+# TAB 6: RANKED ALERTS
 # =============================================================================
-elif page == "6. Ranked Investigation Alerts":
+with tabs[5]:
     st.title("🚨 Prioritized Investigation Alert Feed")
-    st.markdown("Ranked triage queue ordering suspicious transactions by composite risk score (0–100).")
+    st.caption("Ranked triage queue ordering suspicious transactions by composite risk score (0–100).")
 
     r_col1, r_col2 = st.columns([1, 2])
     with r_col1:
-        min_risk_level = st.selectbox("Minimum Alert Severity Level", ["MEDIUM", "HIGH", "CRITICAL", "LOW"], index=0)
+        min_risk_level = st.selectbox("Minimum Severity Level", ["MEDIUM", "HIGH", "CRITICAL", "LOW"], index=0, key="tab6_risk")
     with r_col2:
-        search_filter = st.text_input("Filter Alerts (by TXID, IP, or Wallet)", placeholder="Enter keyword...").strip()
+        search_filter = st.text_input("Filter Alerts (by TXID, IP, or Wallet)", placeholder="Enter keyword...", key="tab6_search").strip()
 
     level_order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
     min_rank = level_order.get(min_risk_level.upper(), 1)
@@ -767,51 +600,29 @@ elif page == "6. Ranked Investigation Alerts":
         )
         ranked_alerts = ranked_alerts[mask]
 
-    st.write(f"Displaying **{len(ranked_alerts):,}** prioritized alerts.")
+    st.write(f"Displaying **{len(ranked_alerts):,}** prioritized alerts (Showing top 100 below).")
 
     csv_data = ranked_alerts.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Export Alerts to CSV",
-        data=csv_data,
-        file_name="bitcoin_investigation_alerts.csv",
-        mime="text/csv"
-    )
+    st.download_button(label="📥 Export Alerts to CSV", data=csv_data, file_name="bitcoin_investigation_alerts.csv", mime="text/csv")
 
     st.dataframe(
-        ranked_alerts,
+        ranked_alerts.head(100),
         use_container_width=True,
         hide_index=True,
         column_config={
-            "risk_score": st.column_config.ProgressColumn(
-                "Risk Score",
-                help="Composite Risk (0-100)",
-                format="%d",
-                min_value=0,
-                max_value=100,
-            ),
-            "anomaly_score": st.column_config.NumberColumn(
-                "AI Score",
-                format="%.3f"
-            ),
-            "total_output_amount_btc": st.column_config.NumberColumn(
-                "BTC Amount",
-                format="%.4f"
-            )
+            "risk_score": st.column_config.ProgressColumn("Risk Score", help="Composite Risk (0-100)", format="%d", min_value=0, max_value=100),
+            "anomaly_score": st.column_config.NumberColumn("AI Score", format="%.3f"),
+            "total_output_amount_btc": st.column_config.NumberColumn("BTC Amount", format="%.4f")
         }
     )
 
 
 # =============================================================================
-# PAGE 7: PROTOTYPE EVALUATION
+# TAB 7: PROTOTYPE EVALUATION
 # =============================================================================
-elif page == "7. Prototype Evaluation":
+with tabs[6]:
     st.title("🎯 Prototype Evaluation & Ground Truth Benchmarks")
-    
-    st.warning(
-        "🔒 **Evaluation Policy:** `ground_truth` and `scenario` are strictly used for "
-        "post-prediction validation and benchmarking. They were NEVER provided to the "
-        "Isolation Forest model during training or feature engineering."
-    )
+    st.warning("🔒 **Evaluation Policy:** `ground_truth` and `scenario` are strictly used for post-prediction validation. Never used during training.")
 
     ev1, ev2, ev3, ev4 = st.columns(4)
     ev1.metric("Precision", f"{eval_results['precision'] * 100:.2f}%")
@@ -820,51 +631,23 @@ elif page == "7. Prototype Evaluation":
     ev4.metric("ROC-AUC", f"{eval_results['roc_auc']:.4f}")
 
     st.markdown("---")
-
     cm_data = eval_results['confusion_matrix']
     c_cm, c_sc = st.columns([1, 2])
 
     with c_cm:
         st.subheader("Confusion Matrix")
-        
-        cm_matrix = [
-            [cm_data['true_negatives'], cm_data['false_positives']],
-            [cm_data['false_negatives'], cm_data['true_positives']]
-        ]
-        
-        fig_cm = px.imshow(
-            cm_matrix,
-            labels=dict(x="Predicted Class", y="Actual Ground Truth", color="Count"),
-            x=["Normal (0)", "Anomaly (1)"],
-            y=["Normal (0)", "Anomaly (1)"],
-            text_auto=True,
-            color_continuous_scale="Blues"
-        )
-        fig_cm.update_layout(template="plotly_dark", margin=dict(t=20, b=20, l=20, r=20))
+        cm_matrix = [[cm_data['true_negatives'], cm_data['false_positives']], [cm_data['false_negatives'], cm_data['true_positives']]]
+        fig_cm = px.imshow(cm_matrix, labels=dict(x="Predicted Class", y="Actual Ground Truth", color="Count"), x=["Normal (0)", "Anomaly (1)"], y=["Normal (0)", "Anomaly (1)"], text_auto=True, color_continuous_scale="Blues")
+        fig_cm.update_layout(template="plotly_dark", margin=dict(t=20, b=20, l=20, r=20), height=320)
         st.plotly_chart(fig_cm, use_container_width=True)
 
-        st.caption(f"""
-        - **True Positives (TP):** {cm_data['true_positives']:,}
-        - **True Negatives (TN):** {cm_data['true_negatives']:,}
-        - **False Positives (FP):** {cm_data['false_positives']:,}
-        - **False Negatives (FN):** {cm_data['false_negatives']:,}
-        """)
+        st.caption(f"**TP:** {cm_data['true_positives']:,} | **TN:** {cm_data['true_negatives']:,} | **FP:** {cm_data['false_positives']:,} | **FN:** {cm_data['false_negatives']:,}")
 
     with c_sc:
-        st.subheader("Scenario-Wise Detection Rate Breakdown")
+        st.subheader("Scenario-Wise Detection Rates")
         scenario_df = eval_results['scenario_breakdown']
-        
-        fig_scenario = px.bar(
-            scenario_df[scenario_df['Scenario'] != 'normal'],
-            x='Detection Rate (%)',
-            y='Scenario',
-            orientation='h',
-            color='Avg Risk Score',
-            color_continuous_scale='Reds',
-            text='Detection Rate (%)',
-            labels={'Scenario': 'Anomaly Scenario'}
-        )
-        fig_scenario.update_layout(template="plotly_dark", yaxis=dict(autorange="reversed"))
+        fig_scenario = px.bar(scenario_df[scenario_df['Scenario'] != 'normal'], x='Detection Rate (%)', y='Scenario', orientation='h', color='Avg Risk Score', color_continuous_scale='Reds', text='Detection Rate (%)', labels={'Scenario': 'Anomaly Scenario'})
+        fig_scenario.update_layout(template="plotly_dark", yaxis=dict(autorange="reversed"), height=320)
         st.plotly_chart(fig_scenario, use_container_width=True)
 
     st.subheader("Detailed Scenario Benchmark Table")
