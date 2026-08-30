@@ -1,8 +1,8 @@
 """
-Bitcoin Monitoring & Traffic Analysis Dashboard
+Bitcoin Monitoring & Traffic Analysis Dashboard (High Performance Edition)
 NTRO Problem Statement 26146: AI-Powered Monitoring & Analysis of Bitcoin Transaction Traffic
 
-Streamlit Offline Investigation Prototype
+Optimized for instant, zero-lag page navigation in Streamlit.
 """
 
 import os
@@ -17,7 +17,7 @@ import streamlit as st
 # Ensure src modules are imported
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-from src.preprocessing import load_dataset, preprocess_data, get_dataset_summary
+from src.preprocessing import load_dataset, preprocess_data
 from src.geoip_enrichment import enrich_transactions_with_geoip
 from src.correlation import EntityCorrelator
 from src.graph_analysis import BitcoinGraphEngine
@@ -61,48 +61,24 @@ st.markdown("""
         color: #38bdf8;
         margin-top: 4px;
     }
-    .risk-badge-critical {
-        background-color: #ef4444;
-        color: white;
-        padding: 3px 8px;
-        border-radius: 4px;
-        font-weight: bold;
-    }
-    .risk-badge-high {
-        background-color: #f97316;
-        color: white;
-        padding: 3px 8px;
-        border-radius: 4px;
-        font-weight: bold;
-    }
-    .risk-badge-medium {
-        background-color: #eab308;
-        color: black;
-        padding: 3px 8px;
-        border-radius: 4px;
-        font-weight: bold;
-    }
-    .risk-badge-low {
-        background-color: #22c55e;
-        color: white;
-        padding: 3px 8px;
-        border-radius: 4px;
-        font-weight: bold;
-    }
 </style>
 """, unsafe_allow_html=True)
 
 
 # -----------------------------------------------------------------------------
-# DATA PIPELINE WITH CACHING (OFFLINE EXECUTION)
+# HIGH-PERFORMANCE PRE-COMPUTED STATE (ZERO PARAMETER CACHE)
 # -----------------------------------------------------------------------------
-@st.cache_data(show_spinner="Running Offline Analysis Pipeline...")
-def load_and_process_all_data():
+@st.cache_resource(show_spinner="⚡ Initializing Bitcoin Sentinel Engine...")
+def get_system_context():
+    """
+    Executes the entire offline pipeline and precomputes all expensive operations
+    once. Avoids DataFrame hashing on page transitions for instant UI switching.
+    """
     # 1. Ingestion & Preprocessing
     raw_df = load_dataset()
     clean_df = preprocess_data(raw_df)
     
-    # 2. GeoIP Enrichment
+    # 2. Offline GeoIP Enrichment
     enriched_df = enrich_transactions_with_geoip(clean_df)
     
     # 3. Unsupervised Feature Engineering
@@ -119,27 +95,104 @@ def load_and_process_all_data():
     # 6. Evaluation against Ground Truth
     eval_results = evaluate_prototype_predictions(scored_df)
     
-    return scored_df, feat_df, eval_results
+    # 7. Correlator and Graph Engine
+    correlator = EntityCorrelator(scored_df)
+    graph_engine = BitcoinGraphEngine(scored_df)
+    
+    # Precompute heavy graph metrics so Page 4 loads in 0 ms
+    graph_summary = graph_engine.get_graph_summary()
+    high_degree_entities = graph_engine.get_high_degree_entities(top_n=10)
+    
+    # Precompute ranked alerts so Page 6 loads in 0 ms
+    ranked_alerts_full = generate_ranked_alerts(scored_df, min_risk="LOW")
+    
+    # Precompute Page 1 Aggregations
+    total_tx = len(scored_df)
+    detected_anom = int(scored_df['is_anomaly'].sum())
+    normal_tx = total_tx - detected_anom
+    critical_alerts = int((scored_df['risk_level'] == 'CRITICAL').sum())
+    high_alerts = int((scored_df['risk_level'] == 'HIGH').sum())
+    
+    anom_counts = pd.DataFrame({
+        "Classification": ["Normal Traffic", "Detected Anomalies"],
+        "Count": [normal_tx, detected_anom]
+    })
+    
+    risk_counts = scored_df['risk_level'].value_counts().reindex(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).fillna(0).reset_index()
+    risk_counts.columns = ['Risk Tier', 'Count']
+    
+    country_agg = scored_df.groupby('src_country').agg(
+        total_tx=('txid', 'count'),
+        high_risk=('risk_level', lambda x: (x.isin(['HIGH', 'CRITICAL'])).sum())
+    ).reset_index().sort_values(by='total_tx', ascending=False).head(10)
+    
+    time_df = scored_df.set_index('timestamp').resample('7D').agg(
+        total=('txid', 'count'),
+        anomalies=('is_anomaly', 'sum')
+    ).reset_index()
+    
+    top_ips = scored_df[scored_df['risk_level'].isin(['HIGH', 'CRITICAL'])].groupby('src_ip').agg(
+        critical_alerts=('risk_level', 'count'),
+        total_btc=('total_output_amount_btc', 'sum'),
+        wallets_used=('source_wallet', 'nunique'),
+        country=('src_country', 'first'),
+        asn=('src_asn', 'first')
+    ).reset_index().sort_values(by='critical_alerts', ascending=False).head(5)
+    
+    top_wallets = scored_df.groupby('source_wallet').agg(
+        max_risk=('risk_score', 'max'),
+        avg_risk=('risk_score', 'mean'),
+        total_tx=('txid', 'count'),
+        unique_ips=('src_ip', 'nunique'),
+        total_btc=('total_output_amount_btc', 'sum')
+    ).reset_index().sort_values(by=['max_risk', 'avg_risk'], ascending=False).head(5)
+
+    return {
+        "scored_df": scored_df,
+        "feat_df": feat_df,
+        "eval_results": eval_results,
+        "correlator": correlator,
+        "graph_engine": graph_engine,
+        "graph_summary": graph_summary,
+        "high_degree_entities": high_degree_entities,
+        "ranked_alerts_full": ranked_alerts_full,
+        "kpis": {
+            "total_tx": total_tx,
+            "normal_tx": normal_tx,
+            "detected_anom": detected_anom,
+            "critical_alerts": critical_alerts,
+            "high_alerts": high_alerts,
+            "anom_counts": anom_counts,
+            "risk_counts": risk_counts,
+            "country_agg": country_agg,
+            "time_df": time_df,
+            "top_ips": top_ips,
+            "top_wallets": top_wallets
+        }
+    }
 
 
-@st.cache_resource(show_spinner="Constructing NetworkX Entity Graph...")
-def get_graph_and_correlator(scored_df_sample):
-    correlator = EntityCorrelator(scored_df_sample)
-    graph_engine = BitcoinGraphEngine(scored_df_sample)
-    return correlator, graph_engine
-
-
-# Load data
-scored_df, feat_df, eval_results = load_and_process_all_data()
-correlator, graph_engine = get_graph_and_correlator(scored_df)
+# Load full precomputed state (executes once in memory)
+ctx = get_system_context()
+scored_df = ctx["scored_df"]
+eval_results = ctx["eval_results"]
+correlator = ctx["correlator"]
+graph_engine = ctx["graph_engine"]
+kpis = ctx["kpis"]
 
 
 # -----------------------------------------------------------------------------
-# SIDEBAR NAVIGATION & SYSTEM STATUS
+# SIDEBAR NAVIGATION (FAST & OFFLINE)
 # -----------------------------------------------------------------------------
-st.sidebar.image("https://img.icons8.com/fluency/96/bitcoin.png", width=64)
-st.sidebar.title("Bitcoin Sentinel")
-st.sidebar.caption("NTRO PS 26146 — AI Bitcoin Traffic Monitor")
+st.sidebar.markdown("""
+<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+    <span style="font-size: 2.2rem;">🛡️</span>
+    <div>
+        <h2 style="margin: 0; font-size: 1.3rem; color: #f8fafc;">Bitcoin Sentinel</h2>
+        <span style="font-size: 0.75rem; color: #94a3b8;">NTRO PS 26146 Monitor</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 st.sidebar.markdown("---")
 page = st.sidebar.radio(
@@ -157,7 +210,7 @@ page = st.sidebar.radio(
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("System Status")
-st.sidebar.success("Mode: Fully Offline")
+st.sidebar.success("Mode: Fully Offline (Fast)")
 geoip_stat = scored_df['geoip_lookup_status'].iloc[0]
 if geoip_stat == "geoip_resolved":
     st.sidebar.info("GeoIP: MaxMind MMDB Active")
@@ -179,45 +232,39 @@ if page == "1. Overview & Executive KPIs":
     # Executive Metric Cards
     col1, col2, col3, col4, col5 = st.columns(5)
     
-    total_tx = len(scored_df)
-    detected_anom = int(scored_df['is_anomaly'].sum())
-    normal_tx = total_tx - detected_anom
-    critical_alerts = int((scored_df['risk_level'] == 'CRITICAL').sum())
-    high_alerts = int((scored_df['risk_level'] == 'HIGH').sum())
-    
     with col1:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-title">Total Records</div>
-            <div class="metric-value">{total_tx:,}</div>
+            <div class="metric-value">{kpis['total_tx']:,}</div>
         </div>
         """, unsafe_allow_html=True)
     with col2:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-title">Baseline Normal</div>
-            <div class="metric-value" style="color: #22c55e;">{normal_tx:,}</div>
+            <div class="metric-value" style="color: #22c55e;">{kpis['normal_tx']:,}</div>
         </div>
         """, unsafe_allow_html=True)
     with col3:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-title">AI Anomalies</div>
-            <div class="metric-value" style="color: #f59e0b;">{detected_anom:,}</div>
+            <div class="metric-value" style="color: #f59e0b;">{kpis['detected_anom']:,}</div>
         </div>
         """, unsafe_allow_html=True)
     with col4:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-title">High Risk Alerts</div>
-            <div class="metric-value" style="color: #f97316;">{high_alerts:,}</div>
+            <div class="metric-value" style="color: #f97316;">{kpis['high_alerts']:,}</div>
         </div>
         """, unsafe_allow_html=True)
     with col5:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-title">Critical Alerts</div>
-            <div class="metric-value" style="color: #ef4444;">{critical_alerts:,}</div>
+            <div class="metric-value" style="color: #ef4444;">{kpis['critical_alerts']:,}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -227,12 +274,8 @@ if page == "1. Overview & Executive KPIs":
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("AI Anomaly Classification Breakdown")
-        anom_counts = pd.DataFrame({
-            "Classification": ["Normal Traffic", "Detected Anomalies"],
-            "Count": [normal_tx, detected_anom]
-        })
         fig_pie = px.pie(
-            anom_counts,
+            kpis['anom_counts'],
             values="Count",
             names="Classification",
             color="Classification",
@@ -244,10 +287,8 @@ if page == "1. Overview & Executive KPIs":
 
     with c2:
         st.subheader("Investigative Risk Severity Tiers (0–100)")
-        risk_counts = scored_df['risk_level'].value_counts().reindex(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).fillna(0).reset_index()
-        risk_counts.columns = ['Risk Tier', 'Count']
         fig_bar = px.bar(
-            risk_counts,
+            kpis['risk_counts'],
             x='Risk Tier',
             y='Count',
             color='Risk Tier',
@@ -261,13 +302,8 @@ if page == "1. Overview & Executive KPIs":
     c3, c4 = st.columns(2)
     with c3:
         st.subheader("Source Country Activity & Risk Profile")
-        country_agg = scored_df.groupby('src_country').agg(
-            total_tx=('txid', 'count'),
-            high_risk=('risk_level', lambda x: (x.isin(['HIGH', 'CRITICAL'])).sum())
-        ).reset_index().sort_values(by='total_tx', ascending=False).head(10)
-        
         fig_country = px.bar(
-            country_agg,
+            kpis['country_agg'],
             x='src_country',
             y=['total_tx', 'high_risk'],
             barmode='group',
@@ -279,12 +315,8 @@ if page == "1. Overview & Executive KPIs":
 
     with c4:
         st.subheader("Temporal Transaction Velocity & Anomaly Occurrence")
-        time_df = scored_df.set_index('timestamp').resample('7D').agg(
-            total=('txid', 'count'),
-            anomalies=('is_anomaly', 'sum')
-        ).reset_index()
         fig_time = px.line(
-            time_df,
+            kpis['time_df'],
             x='timestamp',
             y=['total', 'anomalies'],
             labels={'value': 'Weekly Transactions', 'timestamp': 'Date', 'variable': 'Metric'},
@@ -298,25 +330,11 @@ if page == "1. Overview & Executive KPIs":
     col_t1, col_t2 = st.columns(2)
     with col_t1:
         st.caption("Top Suspicious Source IPs (by High/Critical Risk TX Count)")
-        top_ips = scored_df[scored_df['risk_level'].isin(['HIGH', 'CRITICAL'])].groupby('src_ip').agg(
-            critical_alerts=('risk_level', 'count'),
-            total_btc=('total_output_amount_btc', 'sum'),
-            wallets_used=('source_wallet', 'nunique'),
-            country=('src_country', 'first'),
-            asn=('src_asn', 'first')
-        ).reset_index().sort_values(by='critical_alerts', ascending=False).head(5)
-        st.dataframe(top_ips, use_container_width=True, hide_index=True)
+        st.dataframe(kpis['top_ips'], use_container_width=True, hide_index=True)
 
     with col_t2:
         st.caption("Top Suspicious Source Wallets (by Risk Score)")
-        top_wallets = scored_df.groupby('source_wallet').agg(
-            max_risk=('risk_score', 'max'),
-            avg_risk=('risk_score', 'mean'),
-            total_tx=('txid', 'count'),
-            unique_ips=('src_ip', 'nunique'),
-            total_btc=('total_output_amount_btc', 'sum')
-        ).reset_index().sort_values(by=['max_risk', 'avg_risk'], ascending=False).head(5)
-        st.dataframe(top_wallets, use_container_width=True, hide_index=True)
+        st.dataframe(kpis['top_wallets'], use_container_width=True, hide_index=True)
 
 
 # =============================================================================
@@ -358,13 +376,11 @@ elif page == "2. Transaction Investigation":
     if filtered_df.empty:
         st.warning("No transactions match the specified search parameters.")
     else:
-        # Selector for transaction
         txid_options = filtered_df['txid'].head(100).tolist()
         selected_txid = st.selectbox("Select Transaction for Full Forensic Breakdown", txid_options)
         
         tx_row = scored_df[scored_df['txid'] == selected_txid].iloc[0]
 
-        # Top Banner with Risk Level and Scores
         risk_color_map = {
             "CRITICAL": "#ef4444",
             "HIGH": "#f97316",
@@ -391,7 +407,6 @@ elif page == "2. Transaction Investigation":
         </div>
         """, unsafe_allow_html=True)
 
-        # Explainable Reasons Box
         st.subheader("💡 Automated Forensic Explanation & Evidence")
         reasons_list = [r.strip() for r in str(tx_row['risk_reasons']).split(';') if r.strip()]
         for r in reasons_list:
@@ -399,7 +414,6 @@ elif page == "2. Transaction Investigation":
 
         st.markdown("---")
 
-        # Two-Column Detailed Breakdown
         col_left, col_right = st.columns(2)
 
         with col_left:
@@ -448,7 +462,6 @@ elif page == "2. Transaction Investigation":
             }
             st.table(pd.DataFrame(list(chain_data.items()), columns=["Blockchain Attribute", "Value"]))
 
-        # Expanded UTXO Address & Amount Lists
         with st.expander("View Granular Participating UTXO Input/Output Addresses"):
             u_col1, u_col2 = st.columns(2)
             with u_col1:
@@ -492,10 +505,9 @@ elif page == "3. IP-TXID-Wallet Correlation":
             selected_focus = st.text_input("Enter IP Address", value=default_val).strip()
 
         hop_radius = st.slider("Graph Exploration Radius (Hops)", 1, 3, 2)
-        max_nodes_display = st.slider("Max Nodes to Render", 10, 80, 40)
+        max_nodes_display = st.slider("Max Nodes to Render", 10, 60, 35)
 
     with g_col2:
-        # Extract subgraph
         sub_g = graph_engine.extract_subgraph(selected_focus, radius=hop_radius, max_nodes=max_nodes_display)
 
         if sub_g.number_of_nodes() == 0:
@@ -503,10 +515,8 @@ elif page == "3. IP-TXID-Wallet Correlation":
         else:
             st.caption(f"Visualizing ego subgraph around **{selected_focus}** ({sub_g.number_of_nodes()} nodes, {sub_g.number_of_edges()} edges)")
             
-            # Spring layout for 2D positioning
-            pos = nx.spring_layout(sub_g, seed=42, k=0.5)
+            pos = nx.spring_layout(sub_g, seed=42, k=0.6, iterations=30)
 
-            # Node Traces by Type
             node_x_ip, node_y_ip, text_ip = [], [], []
             node_x_tx, node_y_tx, text_tx = [], [], []
             node_x_w, node_y_w, text_w = [], [], []
@@ -527,9 +537,7 @@ elif page == "3. IP-TXID-Wallet Correlation":
                     node_y_w.append(y)
                     text_w.append(f"<b>Wallet:</b> {node}")
 
-            # Edge Trace
-            edge_x = []
-            edge_y = []
+            edge_x, edge_y = [], []
             for edge in sub_g.edges():
                 x0, y0 = pos[edge[0]]
                 x1, y1 = pos[edge[1]]
@@ -538,7 +546,6 @@ elif page == "3. IP-TXID-Wallet Correlation":
 
             fig_graph = go.Figure()
 
-            # Add Edges
             fig_graph.add_trace(go.Scatter(
                 x=edge_x, y=edge_y,
                 line=dict(width=1.2, color="#64748b"),
@@ -547,7 +554,6 @@ elif page == "3. IP-TXID-Wallet Correlation":
                 name='Connections'
             ))
 
-            # Add IP Nodes (Cyan)
             if node_x_ip:
                 fig_graph.add_trace(go.Scatter(
                     x=node_x_ip, y=node_y_ip,
@@ -560,7 +566,6 @@ elif page == "3. IP-TXID-Wallet Correlation":
                     name='IP Address'
                 ))
 
-            # Add TXID Nodes (Orange/Purple)
             if node_x_tx:
                 fig_graph.add_trace(go.Scatter(
                     x=node_x_tx, y=node_y_tx,
@@ -571,7 +576,6 @@ elif page == "3. IP-TXID-Wallet Correlation":
                     name='Transaction (TXID)'
                 ))
 
-            # Add Wallet Nodes (Emerald)
             if node_x_w:
                 fig_graph.add_trace(go.Scatter(
                     x=node_x_w, y=node_y_w,
@@ -596,7 +600,6 @@ elif page == "3. IP-TXID-Wallet Correlation":
 
             st.plotly_chart(fig_graph, use_container_width=True)
 
-    # Detailed Correlation Metrics for Selected Focus
     st.subheader("Entity Correlation Profile")
     if focus_entity_type == "IP":
         ip_data = correlator.get_ip_correlations(selected_focus)
@@ -613,13 +616,13 @@ elif page == "3. IP-TXID-Wallet Correlation":
 
 
 # =============================================================================
-# PAGE 4: GRAPH ANALYTICS & TOPOLOGY
+# PAGE 4: GRAPH ANALYTICS & TOPOLOGY (FAST - USES PRECOMPUTED SUMMARY)
 # =============================================================================
 elif page == "4. Graph Analytics & Topology":
     st.title("📊 Network Topology & Graph Analytics")
     st.markdown("Macro graph metrics, centrality distributions, and hub entity identification.")
 
-    g_summary = graph_engine.get_graph_summary()
+    g_summary = ctx["graph_summary"]
     
     col_g1, col_g2, col_g3, col_g4 = st.columns(4)
     col_g1.metric("Total Graph Nodes", f"{g_summary['total_nodes']:,}")
@@ -629,8 +632,7 @@ elif page == "4. Graph Analytics & Topology":
 
     st.markdown("---")
 
-    # High Degree Entities
-    high_deg = graph_engine.get_high_degree_entities(top_n=10)
+    high_deg = ctx["high_degree_entities"]
 
     hd1, hd2 = st.columns(2)
     with hd1:
@@ -663,7 +665,6 @@ elif page == "4. Graph Analytics & Topology":
         fig_w_deg.update_layout(template="plotly_dark", yaxis=dict(autorange="reversed"))
         st.plotly_chart(fig_w_deg, use_container_width=True)
 
-    # Degree Distribution Histogram
     st.subheader("Wallet Degree & Connectivity Distribution")
     fig_deg_dist = px.histogram(
         scored_df,
@@ -687,7 +688,6 @@ elif page == "5. AI Anomaly Analysis":
         "network behavior without relying on prior attack signatures or labels."
     )
 
-    # Educational Rationale Panel
     with st.expander("ℹ️ Why Isolation Forest for Bitcoin Network Anomaly Detection?", expanded=True):
         st.markdown("""
         - **100% Unsupervised:** In real-world monitoring, new attack patterns (peeling chains, mixer bursts) lack pre-existing labels. Isolation Forest requires zero labeled training data.
@@ -697,7 +697,6 @@ elif page == "5. AI Anomaly Analysis":
         - **Zero Leakage:** Evaluated strictly after prediction without ever consuming `ground_truth` or `scenario` labels.
         """)
 
-    # Score Distribution Histogram
     st.subheader("Normalized Anomaly Score Distribution (0.0 to 1.0)")
     fig_score_dist = px.histogram(
         scored_df,
@@ -713,7 +712,6 @@ elif page == "5. AI Anomaly Analysis":
 
     st.markdown("---")
 
-    # Feature Separation Comparison (Normal vs Anomaly)
     st.subheader("Feature Discrepancy Analysis (Normal Baseline vs Anomaly)")
     feature_to_compare = st.selectbox(
         "Select Feature for Distribution Comparison",
@@ -742,20 +740,23 @@ elif page == "5. AI Anomaly Analysis":
 
 
 # =============================================================================
-# PAGE 6: RANKED INVESTIGATION ALERTS
+# PAGE 6: RANKED INVESTIGATION ALERTS (FAST - USES PRECOMPUTED ALERTS)
 # =============================================================================
 elif page == "6. Ranked Investigation Alerts":
     st.title("🚨 Prioritized Investigation Alert Feed")
     st.markdown("Ranked triage queue ordering suspicious transactions by composite risk score (0–100).")
 
-    # Filter by Risk Severity
     r_col1, r_col2 = st.columns([1, 2])
     with r_col1:
         min_risk_level = st.selectbox("Minimum Alert Severity Level", ["MEDIUM", "HIGH", "CRITICAL", "LOW"], index=0)
     with r_col2:
         search_filter = st.text_input("Filter Alerts (by TXID, IP, or Wallet)", placeholder="Enter keyword...").strip()
 
-    ranked_alerts = generate_ranked_alerts(scored_df, min_risk=min_risk_level)
+    level_order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+    min_rank = level_order.get(min_risk_level.upper(), 1)
+    
+    all_alerts = ctx["ranked_alerts_full"]
+    ranked_alerts = all_alerts[all_alerts['risk_level'].map(lambda x: level_order.get(x, 0)) >= min_rank].copy()
 
     if search_filter:
         mask = (
@@ -768,7 +769,6 @@ elif page == "6. Ranked Investigation Alerts":
 
     st.write(f"Displaying **{len(ranked_alerts):,}** prioritized alerts.")
 
-    # CSV Download Button
     csv_data = ranked_alerts.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="📥 Export Alerts to CSV",
@@ -777,7 +777,6 @@ elif page == "6. Ranked Investigation Alerts":
         mime="text/csv"
     )
 
-    # Styled Alerts Table
     st.dataframe(
         ranked_alerts,
         use_container_width=True,
@@ -814,7 +813,6 @@ elif page == "7. Prototype Evaluation":
         "Isolation Forest model during training or feature engineering."
     )
 
-    # Top Metric Tiles
     ev1, ev2, ev3, ev4 = st.columns(4)
     ev1.metric("Precision", f"{eval_results['precision'] * 100:.2f}%")
     ev2.metric("Recall", f"{eval_results['recall'] * 100:.2f}%")
@@ -829,7 +827,6 @@ elif page == "7. Prototype Evaluation":
     with c_cm:
         st.subheader("Confusion Matrix")
         
-        # Display Confusion Matrix as Interactive Heatmap
         cm_matrix = [
             [cm_data['true_negatives'], cm_data['false_positives']],
             [cm_data['false_negatives'], cm_data['true_positives']]
