@@ -1,25 +1,25 @@
 """
-IP-TXID-Wallet Correlation Module
-NTRO Problem Statement 26146: AI-Powered Monitoring & Analysis of Bitcoin Transaction Traffic
+Correlation Subpackage
 """
 
-import os
-import pandas as pd
-from typing import Dict, Any, List, Optional, Tuple
 from src.correlation.correlator import DualLayerCorrelator, calculate_record_correlation_confidence
 
+# Lazy import or direct import of EntityCorrelator for backward compatibility
+try:
+    from src.correlation.correlator import DualLayerCorrelator
+except ImportError:
+    pass
 
 class EntityCorrelator:
     """
     Correlates network-layer entities (IPs, Ports, ASNs) with
     blockchain-layer entities (TXIDs, Wallets, UTXOs).
-    Backward-compatible wrapper supporting both combined and dual-layer data.
     """
 
-    def __init__(self, df: pd.DataFrame):
+    def __init__(self, df):
+        import pandas as pd
         self.df = df.copy(deep=True)
         if 'correlation_confidence' not in self.df.columns:
-            # Precompute correlation confidence if missing
             conf_scores = []
             conf_pcts = []
             for _, row in self.df.iterrows():
@@ -38,7 +38,6 @@ class EntityCorrelator:
         self._build_indexes()
 
     def _build_indexes(self) -> None:
-        """Precompute lookup indexes and aggregation metrics for fast O(1) correlation queries."""
         self.ip_to_txids = self.df.groupby('src_ip')['txid'].apply(list).to_dict() if 'src_ip' in self.df.columns else {}
         self.ip_to_wallets = self.df.groupby('src_ip')['source_wallet'].unique().apply(list).to_dict() if 'src_ip' in self.df.columns and 'source_wallet' in self.df.columns else {}
         self.wallet_to_ips = self.df.groupby('source_wallet')['src_ip'].unique().apply(list).to_dict() if 'src_ip' in self.df.columns and 'source_wallet' in self.df.columns else {}
@@ -63,16 +62,15 @@ class EntityCorrelator:
             )
             self.wallet_pairs = pair_counts.sort_values(by='tx_count', ascending=False)
         else:
+            import pandas as pd
             self.wallet_pairs = pd.DataFrame()
 
         self.txid_map = self.df.set_index('txid').to_dict(orient='index') if 'txid' in self.df.columns else {}
 
-    def get_tx_details(self, txid: str) -> Optional[Dict[str, Any]]:
-        """Retrieve complete network-blockchain correlation details for a specific TXID."""
+    def get_tx_details(self, txid: str):
         return self.txid_map.get(txid)
 
-    def get_ip_correlations(self, ip: str) -> Dict[str, Any]:
-        """Retrieve all blockchain entities and activity associated with an IP address."""
+    def get_ip_correlations(self, ip: str):
         associated_txids = self.ip_to_txids.get(ip, [])
         associated_wallets = self.ip_to_wallets.get(ip, [])
         tx_subset = self.df[self.df['src_ip'] == ip] if 'src_ip' in self.df.columns else pd.DataFrame()
@@ -97,8 +95,7 @@ class EntityCorrelator:
             "correlation_descriptor": f"Probabilistic IP-wallet association ({int(round(avg_conf*100))}% confidence)"
         }
 
-    def get_wallet_correlations(self, wallet: str) -> Dict[str, Any]:
-        """Retrieve all network vantage points and transactions associated with a wallet entity."""
+    def get_wallet_correlations(self, wallet: str):
         associated_ips = self.wallet_to_ips.get(wallet, [])
         associated_txids = self.wallet_to_txids.get(wallet, [])
         
@@ -128,8 +125,7 @@ class EntityCorrelator:
             "counterparty_count": len(counterparty_wallets)
         }
 
-    def get_top_reused_ips(self, top_n: int = 10) -> pd.DataFrame:
-        """Find IPs broadcasting on behalf of the highest number of distinct wallets."""
+    def get_top_reused_ips(self, top_n: int = 10):
         if 'src_ip' not in self.df.columns:
             return pd.DataFrame()
         ip_agg = (
@@ -148,8 +144,7 @@ class EntityCorrelator:
         )
         return ip_agg
 
-    def get_top_dispersed_wallets(self, top_n: int = 10) -> pd.DataFrame:
-        """Find wallets originating from the highest number of distinct IPs (IP dispersion)."""
+    def get_top_dispersed_wallets(self, top_n: int = 10):
         if 'source_wallet' not in self.df.columns:
             return pd.DataFrame()
         wallet_agg = (
@@ -168,8 +163,9 @@ class EntityCorrelator:
         return wallet_agg
 
 
-def load_correlation_edges(data_dir: str = "data") -> Dict[str, pd.DataFrame]:
-    """Load pre-supplied correlation edge CSV files if present."""
+def load_correlation_edges(data_dir: str = "data"):
+    import os
+    import pandas as pd
     edge_files = {
         "ip_txid_wallet": os.path.join(data_dir, "ip_txid_wallet_correlations.csv"),
         "transaction_wallet": os.path.join(data_dir, "transaction_wallet_edges.csv"),

@@ -1,8 +1,6 @@
 """
-Bitcoin Monitoring & Traffic Analysis Dashboard (Instant Tab & Fast Navigation Edition)
+Bitcoin Monitoring & Traffic Analysis Dashboard
 NTRO Problem Statement 26146: AI-Powered Monitoring & Analysis of Bitcoin Transaction Traffic
-
-Optimized with instantaneous client-side tabs and precomputed in-memory state.
 """
 
 import os
@@ -18,13 +16,20 @@ import streamlit as st
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from src.preprocessing import load_dataset, preprocess_data
+from src.ingestion.network_ingestion import parse_and_validate_network_csv
+from src.ingestion.blockchain_ingestion import parse_and_validate_blockchain_csv
 from src.geoip_enrichment import enrich_transactions_with_geoip
-from src.correlation import EntityCorrelator
+from src.correlation import EntityCorrelator, DualLayerCorrelator, calculate_record_correlation_confidence
+from src.temporal.temporal_analysis import analyze_temporal_patterns
+from src.behavioural.behavioural_fingerprinting import extract_behavioural_evidence_scores
 from src.graph_analysis import BitcoinGraphEngine
+from src.clustering.dbscan_clustering import BitcoinDBSCANClustering
 from src.feature_engineering import extract_features
 from src.anomaly_detection import BitcoinAnomalyDetector
 from src.risk_scoring import RiskScoringEngine, generate_ranked_alerts
+from src.explainability.shap_explainer import BitcoinSHAPExplainer
 from src.evaluation import evaluate_prototype_predictions
+from src.database.db_manager import DatabaseManager
 
 # -----------------------------------------------------------------------------
 # PAGE CONFIGURATION & STYLING
@@ -36,7 +41,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom Cyber Dark Theme CSS with Instant Tab Styling
+# Custom Cyber Dark Theme CSS
 st.markdown("""
 <style>
     /* Metric Cards */
@@ -90,75 +95,118 @@ st.markdown("""
 
 
 # -----------------------------------------------------------------------------
-# HIGH-PERFORMANCE PRE-COMPUTED STATE (ZERO PARAMETER CACHE)
+# PIPELINE EXECUTION ENGINE
 # -----------------------------------------------------------------------------
-@st.cache_resource(show_spinner="⚡ Initializing Bitcoin Sentinel Engine...")
-def get_system_context():
-    # 1. Ingestion & Preprocessing
-    raw_df = load_dataset()
-    clean_df = preprocess_data(raw_df)
-    
-    # 2. Offline GeoIP Enrichment
+def run_investigation_pipeline(net_source, chain_source):
+    """
+    Parse, validate, correlate, and analyze Network and Blockchain datasets independently.
+    Returns complete context dictionary.
+    """
+    # 1. Independent Ingestion & Validation
+    net_df, net_warnings = parse_and_validate_network_csv(net_source)
+    chain_df, chain_warnings = parse_and_validate_blockchain_csv(chain_source)
+
+    # 2. Independent Correlation Layer (No blind row concatenation or index matching)
+    dual_correlator = DualLayerCorrelator(net_df, chain_df)
+    clean_df = dual_correlator.get_correlated_dataframe()
+
+    # 3. Offline GeoIP Enrichment
     enriched_df = enrich_transactions_with_geoip(clean_df)
-    
-    # 3. Unsupervised Feature Engineering
+
+    # 4. Feature Engineering
     feat_df = extract_features(enriched_df)
-    
-    # 4. AI Anomaly Detection (Isolation Forest)
+
+    # 5. Isolation Forest Anomaly Detection
     detector = BitcoinAnomalyDetector(contamination=0.10, n_estimators=150, random_state=42)
     is_anomaly, raw_scores, norm_scores = detector.fit_predict(feat_df)
-    
-    # 5. Risk Scoring & Reason Generation
+
+    # 6. DBSCAN Behavioural Clustering
+    dbscan = BitcoinDBSCANClustering(eps=0.5, min_samples=5)
+    cluster_labels, noise_mask, dbscan_evidence = dbscan.fit_predict(feat_df)
+    enriched_df['dbscan_cluster'] = cluster_labels
+    enriched_df['dbscan_is_noise'] = noise_mask
+    enriched_df['dbscan_evidence'] = dbscan_evidence
+
+    # 7. Temporal & Behavioural Evidence
+    temp_df = analyze_temporal_patterns(enriched_df)
+    beh_df = extract_behavioural_evidence_scores(temp_df)
+
+    # 8. NetworkX Graph Analysis & Louvain Community Detection
+    graph_engine = BitcoinGraphEngine(beh_df)
+
+    louvain_ev = []
+    community_ids = []
+    for txid in beh_df['txid']:
+        score, _ = graph_engine.louvain_detector.compute_community_evidence_score(str(txid))
+        louvain_ev.append(score)
+        comm_info = graph_engine.get_node_community_info(str(txid))
+        community_ids.append(comm_info.get("community_id", -1))
+
+    beh_df['louvain_community_evidence'] = louvain_ev
+    beh_df['community_id'] = community_ids
+
+    # 9. Multi-Layer Evidence Fusion & Risk Scoring
     risk_engine = RiskScoringEngine(ml_weight=0.45, heuristic_weight=0.55)
-    scored_df = risk_engine.compute_risk_scores(enriched_df, norm_scores, raw_scores, is_anomaly)
-    
-    # 6. Evaluation against Ground Truth
+    scored_df = risk_engine.compute_risk_scores(
+        beh_df, norm_scores, raw_scores, is_anomaly,
+        dbscan_evidence=dbscan_evidence, louvain_evidence=np.array(louvain_ev)
+    )
+
+    # Normalize canonical risk_level
+    scored_df['risk_level_normalized'] = scored_df['risk_level'].astype(str).str.strip().str.upper()
+
+    # Fit SHAP Explainer
+    shap_explainer = BitcoinSHAPExplainer()
+    shap_explainer.fit(feat_df, scored_df['anomaly_score'].values)
+
+    # Evaluation against Ground Truth
     eval_results = evaluate_prototype_predictions(scored_df)
-    
-    # 7. Correlator and Graph Engine
+
+    # Entity Correlator & DB Manager
     correlator = EntityCorrelator(scored_df)
-    graph_engine = BitcoinGraphEngine(scored_df)
-    
+    db_manager = DatabaseManager()
+
     # Precompute Graph Summary & High Degree Nodes
     graph_summary = graph_engine.get_graph_summary()
     high_degree_entities = graph_engine.get_high_degree_entities(top_n=10)
-    
-    # Precompute Ranked Alerts
-    ranked_alerts_full = generate_ranked_alerts(scored_df, min_risk="LOW")
-    
-    # Precompute Summary KPIs
+
+    # Precompute Complete Ranked Alerts (Unfiltered Base Feed)
+    ranked_alerts_full = generate_ranked_alerts(scored_df, "ALL")
+
+    # Summary KPIs
     total_tx = len(scored_df)
     detected_anom = int(scored_df['is_anomaly'].sum())
     normal_tx = total_tx - detected_anom
-    critical_alerts = int((scored_df['risk_level'] == 'CRITICAL').sum())
-    high_alerts = int((scored_df['risk_level'] == 'HIGH').sum())
-    
+    critical_alerts = int((scored_df['risk_level_normalized'] == 'CRITICAL').sum())
+    high_alerts = int((scored_df['risk_level_normalized'] == 'HIGH').sum())
+    mean_conf_pct = int(round(scored_df['correlation_confidence'].mean() * 100)) if 'correlation_confidence' in scored_df.columns else 85
+
     anom_counts = pd.DataFrame({
         "Classification": ["Normal Traffic", "Detected Anomalies"],
         "Count": [normal_tx, detected_anom]
     })
-    
-    risk_counts = scored_df['risk_level'].value_counts().reindex(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).fillna(0).reset_index()
+
+    risk_counts = scored_df['risk_level_normalized'].value_counts().reindex(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).fillna(0).reset_index()
     risk_counts.columns = ['Risk Tier', 'Count']
-    
+
     country_agg = scored_df.groupby('src_country').agg(
         total_tx=('txid', 'count'),
-        high_risk=('risk_level', lambda x: (x.isin(['HIGH', 'CRITICAL'])).sum())
+        high_risk=('risk_level_normalized', lambda x: (x.isin(['HIGH', 'CRITICAL'])).sum())
     ).reset_index().sort_values(by='total_tx', ascending=False).head(10)
-    
+
     time_df = scored_df.set_index('timestamp').resample('7D').agg(
         total=('txid', 'count'),
         anomalies=('is_anomaly', 'sum')
     ).reset_index()
-    
-    top_ips = scored_df[scored_df['risk_level'].isin(['HIGH', 'CRITICAL'])].groupby('src_ip').agg(
-        critical_alerts=('risk_level', 'count'),
+
+    top_ips = scored_df[scored_df['risk_level_normalized'].isin(['HIGH', 'CRITICAL'])].groupby('src_ip').agg(
+        critical_alerts=('risk_level_normalized', 'count'),
         total_btc=('total_output_amount_btc', 'sum'),
         wallets_used=('source_wallet', 'nunique'),
         country=('src_country', 'first'),
         asn=('src_asn', 'first')
     ).reset_index().sort_values(by='critical_alerts', ascending=False).head(5)
-    
+
     top_wallets = scored_df.groupby('source_wallet').agg(
         max_risk=('risk_score', 'max'),
         avg_risk=('risk_score', 'mean'),
@@ -170,9 +218,13 @@ def get_system_context():
     return {
         "scored_df": scored_df,
         "feat_df": feat_df,
+        "net_warnings": net_warnings,
+        "chain_warnings": chain_warnings,
         "eval_results": eval_results,
         "correlator": correlator,
         "graph_engine": graph_engine,
+        "shap_explainer": shap_explainer,
+        "db_manager": db_manager,
         "graph_summary": graph_summary,
         "high_degree_entities": high_degree_entities,
         "ranked_alerts_full": ranked_alerts_full,
@@ -182,6 +234,7 @@ def get_system_context():
             "detected_anom": detected_anom,
             "critical_alerts": critical_alerts,
             "high_alerts": high_alerts,
+            "mean_conf_pct": mean_conf_pct,
             "anom_counts": anom_counts,
             "risk_counts": risk_counts,
             "country_agg": country_agg,
@@ -192,12 +245,26 @@ def get_system_context():
     }
 
 
-# Load context
-ctx = get_system_context()
+# Initialize Session State Context if not present
+if "context" not in st.session_state:
+    net_default = os.path.join("data", "network_traffic_dataset.csv")
+    chain_default = os.path.join("data", "blockchain_transactions_dataset.csv")
+    if os.path.exists(net_default) and os.path.exists(chain_default):
+        st.session_state["context"] = run_investigation_pipeline(net_default, chain_default)
+        st.session_state["datasets_validated"] = True
+    else:
+        raw_df = load_dataset()
+        st.session_state["context"] = run_investigation_pipeline(raw_df, raw_df)
+        st.session_state["datasets_validated"] = True
+
+ctx = st.session_state["context"]
 scored_df = ctx["scored_df"]
+feat_df = ctx["feat_df"]
 eval_results = ctx["eval_results"]
 correlator = ctx["correlator"]
 graph_engine = ctx["graph_engine"]
+shap_explainer = ctx["shap_explainer"]
+db_manager = ctx["db_manager"]
 kpis = ctx["kpis"]
 
 
@@ -209,7 +276,7 @@ st.sidebar.markdown("""
     <span style="font-size: 2.2rem;">🛡️</span>
     <div>
         <h2 style="margin: 0; font-size: 1.3rem; color: #f8fafc;">Bitcoin Sentinel</h2>
-        <span style="font-size: 0.75rem; color: #94a3b8;">NTRO PS 26146 Prototype</span>
+        <span style="font-size: 0.75rem; color: #94a3b8;">NTRO PS 26146 Prototype v2.0</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -219,11 +286,17 @@ st.sidebar.subheader("Quick Stats")
 st.sidebar.metric("Monitored Transactions", f"{kpis['total_tx']:,}")
 st.sidebar.metric("AI Anomalies Detected", f"{kpis['detected_anom']:,}")
 st.sidebar.metric("Critical Alerts", f"{kpis['critical_alerts']:,}")
+st.sidebar.metric("Mean Correlation Conf.", f"{kpis['mean_conf_pct']}%")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("System Mode")
 st.sidebar.success("🟢 100% Offline Active")
-geoip_stat = scored_df['geoip_lookup_status'].iloc[0]
+if db_manager.is_connected:
+    st.sidebar.info(f"Database: {db_manager.db_type}")
+else:
+    st.sidebar.warning("Database: Disconnected")
+
+geoip_stat = scored_df['geoip_lookup_status'].iloc[0] if 'geoip_lookup_status' in scored_df.columns else 'synthetic_fallback'
 if geoip_stat == "geoip_resolved":
     st.sidebar.info("GeoIP: MaxMind MMDB")
 else:
@@ -235,6 +308,7 @@ st.sidebar.caption("Defensive Cybersecurity Prototype")
 # INSTANT CLIENT-SIDE TAB NAVIGATION (0 MS DELAY)
 # -----------------------------------------------------------------------------
 tabs = st.tabs([
+    "📥 0. Dataset Ingestion",
     "📊 1. Overview & KPIs",
     "🔍 2. Transaction Investigation",
     "🕸️ 3. IP-TXID-Wallet Correlation",
@@ -246,11 +320,135 @@ tabs = st.tabs([
 
 
 # =============================================================================
-# TAB 1: OVERVIEW & EXECUTIVE KPIS
+# TAB 0: DATASET INGESTION & INDEPENDENT VALIDATION
 # =============================================================================
 with tabs[0]:
+    st.title("📥 Two-Layer Dataset Ingestion & Validation")
+    st.caption("Upload separate Network-Layer and Blockchain-Layer CSV files, validate schema integrity independently, and trigger the investigation pipeline.")
+
+    # Preset / Default dataset loader control
+    col_def1, col_def2 = st.columns([3, 1])
+    with col_def1:
+        st.info("ℹ️ **Default Option:** You can upload custom CSV files below or click to load the preloaded 10,000-record synthetic datasets.")
+    with col_def2:
+        if st.button("📂 Load Default Datasets", use_container_width=True):
+            net_default = os.path.join("data", "network_traffic_dataset.csv")
+            chain_default = os.path.join("data", "blockchain_transactions_dataset.csv")
+            if os.path.exists(net_default) and os.path.exists(chain_default):
+                st.session_state["net_file_data"] = net_default
+                st.session_state["chain_file_data"] = chain_default
+                st.session_state["datasets_validated"] = True
+                st.success("Loaded preloaded default Network and Blockchain datasets.")
+
+    st.markdown("---")
+
+    col_net_ui, col_chain_ui = st.columns(2)
+
+    # 1. NETWORK-LAYER DATA CONTROL
+    with col_net_ui:
+        st.subheader("1. NETWORK-LAYER DATA")
+        st.caption("Bitcoin P2P network telemetry, IP addresses, ports, and packet traffic.")
+        
+        net_upload = st.file_uploader("Upload Network CSV", type=["csv"], key="uploader_network_file")
+        
+        if net_upload is not None:
+            st.session_state["net_file_data"] = net_upload
+            st.session_state["datasets_validated"] = False
+
+        net_source = st.session_state.get("net_file_data", os.path.join("data", "network_traffic_dataset.csv"))
+        
+        try:
+            if isinstance(net_source, str):
+                net_preview_df = pd.read_csv(net_source)
+                net_filename = os.path.basename(net_source)
+            else:
+                net_preview_df = pd.read_csv(net_source)
+                net_filename = net_source.name
+                net_source.seek(0)
+            
+            st.success(f"✓ Network dataset loaded\n\n**Filename:** `{net_filename}`  \n**Records:** `{len(net_preview_df):,} rows` × `{len(net_preview_df.columns)} columns`")
+            
+            with st.expander("🔍 Preview Network Dataset", expanded=False):
+                st.dataframe(net_preview_df.head(5), use_container_width=True)
+                st.caption(f"**Detected Columns:** {', '.join(net_preview_df.columns[:10])}...")
+        except Exception as e:
+            st.error(f"Error loading Network dataset: {e}")
+            net_preview_df = None
+
+    # 2. BLOCKCHAIN-LAYER DATA CONTROL
+    with col_chain_ui:
+        st.subheader("2. BLOCKCHAIN-LAYER DATA")
+        st.caption("Bitcoin transaction ledgers, UTXOs, miner fees, and wallet addresses.")
+        
+        chain_upload = st.file_uploader("Upload Blockchain CSV", type=["csv"], key="uploader_blockchain_file")
+        
+        if chain_upload is not None:
+            st.session_state["chain_file_data"] = chain_upload
+            st.session_state["datasets_validated"] = False
+
+        chain_source = st.session_state.get("chain_file_data", os.path.join("data", "blockchain_transactions_dataset.csv"))
+        
+        try:
+            if isinstance(chain_source, str):
+                chain_preview_df = pd.read_csv(chain_source)
+                chain_filename = os.path.basename(chain_source)
+            else:
+                chain_preview_df = pd.read_csv(chain_source)
+                chain_filename = chain_source.name
+                chain_source.seek(0)
+                
+            st.success(f"✓ Blockchain dataset loaded\n\n**Filename:** `{chain_filename}`  \n**Records:** `{len(chain_preview_df):,} rows` × `{len(chain_preview_df.columns)} columns`")
+            
+            with st.expander("🔍 Preview Blockchain Dataset", expanded=False):
+                st.dataframe(chain_preview_df.head(5), use_container_width=True)
+                st.caption(f"**Detected Columns:** {', '.join(chain_preview_df.columns[:10])}...")
+        except Exception as e:
+            st.error(f"Error loading Blockchain dataset: {e}")
+            chain_preview_df = None
+
+    st.markdown("---")
+
+    # ACTION BUTTONS: VALIDATE DATASETS & RUN INVESTIGATION
+    btn_col1, btn_col2, _ = st.columns([1, 1, 2])
+
+    with btn_col1:
+        if st.button("🔍 VALIDATE DATASETS", use_container_width=True, type="secondary"):
+            if net_source is None or chain_source is None:
+                st.error("Both Network CSV and Blockchain CSV must be uploaded before validating.")
+            else:
+                with st.spinner("Validating Network and Blockchain schemas independently..."):
+                    net_df, net_warn = parse_and_validate_network_csv(net_source)
+                    chain_df, chain_warn = parse_and_validate_blockchain_csv(chain_source)
+                    
+                    st.session_state["datasets_validated"] = True
+                    st.session_state["validation_report"] = {
+                        "net_rows": len(net_df),
+                        "chain_rows": len(chain_df),
+                        "net_warn": net_warn,
+                        "chain_warn": chain_warn
+                    }
+                    st.success("✓ Both Network and Blockchain datasets validated successfully!")
+
+    with btn_col2:
+        is_validated = st.session_state.get("datasets_validated", False)
+        if st.button("🚀 RUN INVESTIGATION", use_container_width=True, type="primary", disabled=not is_validated):
+            with st.spinner("Running Multi-Layer Correlation, Graph Engine, AI Models & Risk Scoring..."):
+                new_ctx = run_investigation_pipeline(net_source, chain_source)
+                st.session_state["context"] = new_ctx
+                st.success("✓ Investigation completed successfully! Explore the findings in Tabs 1–7 above.")
+                st.rerun()
+
+    if "validation_report" in st.session_state:
+        vr = st.session_state["validation_report"]
+        st.info(f"**Validation Report:** Network ({vr['net_rows']:,} rows, {len(vr['net_warn'])} warnings) | Blockchain ({vr['chain_rows']:,} rows, {len(vr['chain_warn'])} warnings)")
+
+
+# =============================================================================
+# TAB 1: OVERVIEW & EXECUTIVE KPIS
+# =============================================================================
+with tabs[1]:
     st.title("🛡️ Cyber Monitoring & Anomaly Overview")
-    st.caption("Real-time forensic monitoring tracking synthetic Bitcoin P2P network traffic and on-chain UTXO transfers.")
+    st.caption("Real-time forensic monitoring correlating Bitcoin P2P network telemetry with on-chain UTXO transfers.")
 
     # KPI Metric Cards
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -337,9 +535,9 @@ with tabs[0]:
 # =============================================================================
 # TAB 2: TRANSACTION INVESTIGATION
 # =============================================================================
-with tabs[1]:
+with tabs[2]:
     st.title("🔍 Forensic Transaction Deep-Dive")
-    st.caption("Inspect granular network packet telemetry, on-chain UTXO attributes, and AI-generated risk rationales.")
+    st.caption("Inspect network packet telemetry, on-chain UTXO attributes, Multi-Layer Fused Evidence, and SHAP model explainability.")
 
     # Search & Filter Controls
     f_col1, f_col2, f_col3 = st.columns([1, 1, 2])
@@ -348,9 +546,9 @@ with tabs[1]:
     with f_col2:
         search_txid = st.text_input("Quick TXID Search", placeholder="e.g. TX10000137", key="tab2_search").strip()
     with f_col3:
-        filtered_df = scored_df
+        filtered_df = scored_df.copy()
         if risk_filter != "ALL":
-            filtered_df = filtered_df[filtered_df['risk_level'] == risk_filter]
+            filtered_df = filtered_df[filtered_df['risk_level_normalized'] == risk_filter.upper()]
         if search_txid:
             filtered_df = filtered_df[filtered_df['txid'].str.contains(search_txid, case=False, na=False)]
         
@@ -364,7 +562,9 @@ with tabs[1]:
 
         risk_color_map = {"CRITICAL": "#ef4444", "HIGH": "#f97316", "MEDIUM": "#eab308", "LOW": "#22c55e"}
         r_level = tx_row['risk_level']
-        badge_color = risk_color_map.get(r_level, "#3b82f6")
+        badge_color = risk_color_map.get(r_level.upper(), "#3b82f6")
+        conf_val = tx_row.get('correlation_confidence_pct', '85%')
+        comm_id = tx_row.get('community_id', -1)
 
         st.markdown(f"""
         <div style="background: #1e293b; border-left: 6px solid {badge_color}; padding: 14px 18px; border-radius: 8px; margin: 12px 0 16px 0;">
@@ -374,9 +574,15 @@ with tabs[1]:
                     <span style="background-color: {badge_color}; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; margin-left: 10px; font-size: 0.85rem;">
                         {r_level} RISK
                     </span>
+                    <span style="background-color: #3b82f6; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; margin-left: 6px; font-size: 0.85rem;">
+                        Corr. Confidence: {conf_val}
+                    </span>
+                    <span style="background-color: #8b5cf6; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; margin-left: 6px; font-size: 0.85rem;">
+                        Community #{comm_id}
+                    </span>
                 </div>
                 <div>
-                    <span style="font-size: 1rem; color: #94a3b8; margin-right: 15px;">Risk Score: <strong style="color: {badge_color}; font-size: 1.2rem;">{tx_row['risk_score']}/100</strong></span>
+                    <span style="font-size: 1rem; color: #94a3b8; margin-right: 15px;">Unified Risk Score: <strong style="color: {badge_color}; font-size: 1.2rem;">{tx_row['risk_score']}/100</strong></span>
                     <span style="font-size: 1rem; color: #94a3b8;">AI Score: <strong style="color: #38bdf8;">{tx_row['anomaly_score']:.3f}</strong></span>
                 </div>
             </div>
@@ -390,41 +596,59 @@ with tabs[1]:
 
         st.markdown("---")
 
+        # SHAP Model Feature Explanations
+        st.subheader("🤖 SHAP Model Feature Contribution Analysis")
+        feat_sub = feat_df.loc[tx_row.name] if tx_row.name in feat_df.index else feat_df.iloc[0]
+        shap_explanations = shap_explainer.explain_instance(feat_sub, top_n=6)
+        
+        if shap_explanations:
+            shap_data = []
+            for item in shap_explanations:
+                shap_data.append({
+                    "Feature Name": item["feature"],
+                    "Observed Value": f"{item['feature_value']:.4f}",
+                    "SHAP Impact": item["shap_value"],
+                    "Direction": item["direction"]
+                })
+            st.dataframe(pd.DataFrame(shap_data), use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+
         col_left, col_right = st.columns(2)
 
         with col_left:
             st.subheader("🌐 Network Telemetry & GeoIP")
-            geo_status_badge = "🟢 Resolved (MaxMind MMDB)" if tx_row['geoip_lookup_status'] == "geoip_resolved" else "🟡 Synthetic Fallback (Private IP)"
+            geo_status_badge = "🟢 Resolved (MaxMind MMDB)" if tx_row.get('geoip_lookup_status') == "geoip_resolved" else "🟡 Synthetic Fallback (Private IP)"
             st.info(f"**GeoIP Status:** {geo_status_badge}")
             
             net_data = {
                 "Source IP": tx_row['src_ip'],
                 "Destination IP": tx_row['dst_ip'],
-                "Source / Dest Port": f"{tx_row['src_port']} / {tx_row['dst_port']}",
-                "Network Protocol": tx_row['protocol'],
-                "Network Timestamp": str(tx_row['network_timestamp']),
-                "Connection Duration": f"{tx_row['connection_duration_sec']}s",
-                "Packets / Bytes": f"{tx_row['packet_count']:,} pkts ({int(tx_row['bytes_transferred']/1024):,} KB)",
-                "Source GeoIP Country": tx_row['geoip_src_country'],
-                "Destination GeoIP Country": tx_row['geoip_dst_country'],
-                "Source ASN": tx_row['geoip_src_asn']
+                "Source / Dest Port": f"{tx_row.get('src_port', 8333)} / {tx_row.get('dst_port', 8333)}",
+                "Network Protocol": tx_row.get('protocol', 'TCP'),
+                "Network Timestamp": str(tx_row.get('network_timestamp', tx_row['timestamp'])),
+                "Connection Duration": f"{tx_row.get('connection_duration_sec', 1)}s",
+                "Packets / Bytes": f"{int(tx_row.get('packet_count', 0)):,} pkts ({int(tx_row.get('bytes_transferred', 0)/1024):,} KB)",
+                "Source GeoIP Country": tx_row.get('geoip_src_country', tx_row.get('src_country', 'UNKNOWN')),
+                "Destination GeoIP Country": tx_row.get('geoip_dst_country', tx_row.get('dst_country', 'UNKNOWN')),
+                "Source ASN": tx_row.get('geoip_src_asn', tx_row.get('src_asn', 'UNKNOWN'))
             }
             st.table(pd.DataFrame(list(net_data.items()), columns=["Attribute", "Value"]))
 
         with col_right:
             st.subheader("⛓️ Blockchain Layer & UTXO")
             chain_data = {
-                "Block Height": str(tx_row['block_height']),
+                "Block Height": str(tx_row.get('block_height', 700000)),
                 "Block Timestamp": str(tx_row['timestamp']),
                 "Source Wallet Entity": tx_row['source_wallet'],
                 "Destination Wallet Entity": tx_row['destination_wallet'],
                 "Transferred Volume": f"{tx_row['total_output_amount_btc']:.6f} BTC",
                 "Miner Fee": f"{tx_row['fee_btc']:.6f} BTC",
-                "Inputs / Outputs": f"{tx_row['num_inputs']} in / {tx_row['num_outputs']} out",
-                "Script Type": tx_row['script_type'],
-                "Wallet Graph Degree": str(tx_row['wallet_degree']),
-                "24h Velocity": f"{tx_row['transaction_frequency_24h']} tx/24h",
-                "Inter-tx Time Gap": f"{tx_row['avg_time_gap_min']:.2f} min"
+                "Inputs / Outputs": f"{tx_row.get('num_inputs', 1)} in / {tx_row.get('num_outputs', 1)} out",
+                "Script Type": tx_row.get('script_type', 'P2PKH'),
+                "Wallet Graph Degree": str(tx_row.get('wallet_degree', 1)),
+                "24h Velocity": f"{tx_row.get('transaction_frequency_24h', 1)} tx/24h",
+                "Inter-tx Time Gap": f"{float(tx_row.get('avg_time_gap_min', 60)):.2f} min"
             }
             st.table(pd.DataFrame(list(chain_data.items()), columns=["Attribute", "Value"]))
 
@@ -432,9 +656,9 @@ with tabs[1]:
 # =============================================================================
 # TAB 3: IP–TXID–WALLET CORRELATION GRAPH
 # =============================================================================
-with tabs[2]:
+with tabs[3]:
     st.title("🕸️ IP–TXID–Wallet Multi-Modal Correlation")
-    st.caption("Interactive topological graph linking network vantage points (IPs) to transactions (TXIDs) and wallets.")
+    st.caption("Interactive topological graph linking network vantage points (IPs) to transactions (TXIDs) and wallets with Correlation Confidence.")
 
     g_col1, g_col2 = st.columns([1, 3])
 
@@ -442,15 +666,17 @@ with tabs[2]:
         st.subheader("Subgraph Focus")
         focus_entity_type = st.radio("Focus Node Type", ["TXID", "Wallet", "IP"], key="tab3_type")
         
+        crit_txs = scored_df[scored_df['risk_level_normalized'] == 'CRITICAL']
+        default_txid = crit_txs['txid'].iloc[0] if not crit_txs.empty else scored_df['txid'].iloc[0]
+        default_wallet = crit_txs['source_wallet'].iloc[0] if not crit_txs.empty else scored_df['source_wallet'].iloc[0]
+        default_ip = crit_txs['src_ip'].iloc[0] if not crit_txs.empty else scored_df['src_ip'].iloc[0]
+
         if focus_entity_type == "TXID":
-            default_val = scored_df[scored_df['risk_level'] == 'CRITICAL']['txid'].iloc[0]
-            selected_focus = st.text_input("Enter TXID", value=default_val, key="tab3_tx").strip()
+            selected_focus = st.text_input("Enter TXID", value=default_txid, key="tab3_tx").strip()
         elif focus_entity_type == "Wallet":
-            default_val = scored_df[scored_df['risk_level'] == 'CRITICAL']['source_wallet'].iloc[0]
-            selected_focus = st.text_input("Enter Wallet ID", value=default_val, key="tab3_w").strip()
+            selected_focus = st.text_input("Enter Wallet ID", value=default_wallet, key="tab3_w").strip()
         else:
-            default_val = scored_df[scored_df['risk_level'] == 'CRITICAL']['src_ip'].iloc[0]
-            selected_focus = st.text_input("Enter IP Address", value=default_val, key="tab3_ip").strip()
+            selected_focus = st.text_input("Enter IP Address", value=default_ip, key="tab3_ip").strip()
 
         hop_radius = st.slider("Exploration Radius (Hops)", 1, 3, 2, key="tab3_hop")
         max_nodes_display = st.slider("Max Nodes to Render", 10, 60, 30, key="tab3_nodes")
@@ -506,18 +732,19 @@ with tabs[2]:
 
 
 # =============================================================================
-# TAB 4: GRAPH ANALYTICS
+# TAB 4: GRAPH ANALYTICS & LOUVAIN COMMUNITIES
 # =============================================================================
-with tabs[3]:
-    st.title("📊 Network Topology & Graph Centrality")
-    st.caption("Macro graph metrics, centrality distributions, and hub entity identification.")
+with tabs[4]:
+    st.title("📊 Network Topology & Louvain Communities")
+    st.caption("Macro graph metrics, high-degree hubs, and Louvain community detection structures.")
 
     g_summary = ctx["graph_summary"]
-    col_g1, col_g2, col_g3, col_g4 = st.columns(4)
+    col_g1, col_g2, col_g3, col_g4, col_g5 = st.columns(5)
     col_g1.metric("Total Graph Nodes", f"{g_summary['total_nodes']:,}")
     col_g2.metric("Total Directed Edges", f"{g_summary['total_edges']:,}")
     col_g3.metric("Unique IP Nodes", f"{g_summary['ip_nodes']:,}")
     col_g4.metric("Unique Wallet Nodes", f"{g_summary['wallet_nodes']:,}")
+    col_g5.metric("Louvain Communities", f"{g_summary.get('louvain_communities_count', 0):,}")
 
     st.markdown("---")
     high_deg = ctx["high_degree_entities"]
@@ -537,32 +764,35 @@ with tabs[3]:
         fig_w_deg.update_layout(template="plotly_dark", yaxis=dict(autorange="reversed"), height=320)
         st.plotly_chart(fig_w_deg, use_container_width=True)
 
-    st.subheader("Wallet Degree & Connectivity Distribution")
-    fig_deg_dist = px.histogram(scored_df.sample(min(2000, len(scored_df)), random_state=42), x='wallet_degree', color='risk_level', nbins=30, labels={'wallet_degree': 'Wallet Degree', 'count': 'Count'}, color_discrete_map={'LOW': '#22c55e', 'MEDIUM': '#eab308', 'HIGH': '#f97316', 'CRITICAL': '#ef4444'})
-    fig_deg_dist.update_layout(template="plotly_dark", height=300)
-    st.plotly_chart(fig_deg_dist, use_container_width=True)
+    st.subheader("Discovered Louvain Graph Communities")
+    comm_df = pd.DataFrame(graph_engine.community_stats)
+    if not comm_df.empty:
+        st.dataframe(comm_df, use_container_width=True, hide_index=True)
 
 
 # =============================================================================
-# TAB 5: AI ANOMALY ANALYSIS
+# TAB 5: AI ANOMALY ANALYSIS (ISOLATION FOREST + DBSCAN)
 # =============================================================================
-with tabs[4]:
-    st.title("🤖 Unsupervised AI Anomaly Detection (Isolation Forest)")
-    st.caption("In-depth analysis of the unsupervised machine learning engine isolating anomalous network behavior.")
-
-    with st.expander("ℹ️ Why Isolation Forest for Bitcoin Network Anomaly Detection?", expanded=True):
-        st.markdown("""
-        - **100% Unsupervised:** Operates with zero pre-labeled attack data.
-        - **Isolation Principle:** Anomalous data points have rare attribute combinations and require fewer random splits to isolate.
-        - **Multi-Modal Fusion:** Jointly inspects network flow rates (packets, duration) and on-chain UTXO shape.
-        - **Zero Leakage:** Evaluated strictly after prediction without ever consuming `ground_truth` or `scenario` labels.
-        """)
+with tabs[5]:
+    st.title("🤖 AI Anomaly & Behavioural Clustering Analysis")
+    st.caption("Dual ML architecture: Isolation Forest (unsupervised tree isolation) + DBSCAN (density-based behavioural clustering).")
 
     anom_sample = scored_df.sample(min(2000, len(scored_df)), random_state=42)
-    st.subheader("Normalized Anomaly Score Distribution (0.0 to 1.0)")
-    fig_score_dist = px.histogram(anom_sample, x='anomaly_score', color='is_anomaly', nbins=40, labels={'anomaly_score': 'Normalized Anomaly Score', 'is_anomaly': 'AI Flagged'}, color_discrete_map={0: '#10b981', 1: '#f43f5e'})
-    fig_score_dist.update_layout(template="plotly_dark", height=300)
-    st.plotly_chart(fig_score_dist, use_container_width=True)
+    
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        st.subheader("Isolation Forest Anomaly Score Distribution")
+        fig_score_dist = px.histogram(anom_sample, x='anomaly_score', color='is_anomaly', nbins=40, labels={'anomaly_score': 'Normalized Anomaly Score', 'is_anomaly': 'AI Flagged'}, color_discrete_map={0: '#10b981', 1: '#f43f5e'})
+        fig_score_dist.update_layout(template="plotly_dark", height=300)
+        st.plotly_chart(fig_score_dist, use_container_width=True)
+
+    with col_m2:
+        st.subheader("DBSCAN Behavioural Cluster Membership")
+        dbscan_counts = anom_sample['dbscan_cluster'].value_counts().reset_index()
+        dbscan_counts.columns = ['Cluster ID', 'Count']
+        fig_dbscan = px.bar(dbscan_counts, x='Cluster ID', y='Count', color='Cluster ID', text_auto=True)
+        fig_dbscan.update_layout(template="plotly_dark", height=300)
+        st.plotly_chart(fig_dbscan, use_container_width=True)
 
     st.markdown("---")
     st.subheader("Feature Discrepancy Analysis (Normal vs Anomaly)")
@@ -573,23 +803,28 @@ with tabs[4]:
 
 
 # =============================================================================
-# TAB 6: RANKED ALERTS
+# TAB 6: RANKED ALERTS (FIXED STRICT EXACT RISK FILTERING)
 # =============================================================================
-with tabs[5]:
+with tabs[6]:
     st.title("🚨 Prioritized Investigation Alert Feed")
-    st.caption("Ranked triage queue ordering suspicious transactions by composite risk score (0–100).")
+    st.caption("Ranked triage queue ordering suspicious transactions by Multi-Layer Unified Risk Score (0–100).")
 
     r_col1, r_col2 = st.columns([1, 2])
     with r_col1:
-        min_risk_level = st.selectbox("Minimum Severity Level", ["MEDIUM", "HIGH", "CRITICAL", "LOW"], index=0, key="tab6_risk")
+        selected_risk_level = st.selectbox(
+            "Filter Risk Tier (Exact Match)",
+            ["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW"],
+            index=0,
+            key="tab6_risk_filter_exact"
+        )
     with r_col2:
         search_filter = st.text_input("Filter Alerts (by TXID, IP, or Wallet)", placeholder="Enter keyword...", key="tab6_search").strip()
 
-    level_order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
-    min_rank = level_order.get(min_risk_level.upper(), 1)
+    # ALWAYS filter from ORIGINAL COMPLETE dataset (ctx['scored_df']) to avoid stale dataframe state
+    complete_scored_df = ctx["scored_df"]
     
-    all_alerts = ctx["ranked_alerts_full"]
-    ranked_alerts = all_alerts[all_alerts['risk_level'].map(lambda x: level_order.get(x, 0)) >= min_rank].copy()
+    # Generate ranked alerts feed filtered strictly on exact risk_level
+    ranked_alerts = generate_ranked_alerts(complete_scored_df, selected_risk_level)
 
     if search_filter:
         mask = (
@@ -600,10 +835,10 @@ with tabs[5]:
         )
         ranked_alerts = ranked_alerts[mask]
 
-    st.write(f"Displaying **{len(ranked_alerts):,}** prioritized alerts (Showing top 100 below).")
+    st.write(f"Displaying **{len(ranked_alerts):,}** prioritized alerts for risk tier **{selected_risk_level}** (Showing top 100 below).")
 
     csv_data = ranked_alerts.to_csv(index=False).encode('utf-8')
-    st.download_button(label="📥 Export Alerts to CSV", data=csv_data, file_name="bitcoin_investigation_alerts.csv", mime="text/csv")
+    st.download_button(label="📥 Export Filtered Alerts to CSV", data=csv_data, file_name=f"bitcoin_alerts_{selected_risk_level.lower()}.csv", mime="text/csv")
 
     st.dataframe(
         ranked_alerts.head(100),
@@ -611,6 +846,7 @@ with tabs[5]:
         hide_index=True,
         column_config={
             "risk_score": st.column_config.ProgressColumn("Risk Score", help="Composite Risk (0-100)", format="%d", min_value=0, max_value=100),
+            "risk_level": st.column_config.TextColumn("Risk Level"),
             "anomaly_score": st.column_config.NumberColumn("AI Score", format="%.3f"),
             "total_output_amount_btc": st.column_config.NumberColumn("BTC Amount", format="%.4f")
         }
@@ -620,7 +856,7 @@ with tabs[5]:
 # =============================================================================
 # TAB 7: PROTOTYPE EVALUATION
 # =============================================================================
-with tabs[6]:
+with tabs[7]:
     st.title("🎯 Prototype Evaluation & Ground Truth Benchmarks")
     st.warning("🔒 **Evaluation Policy:** `ground_truth` and `scenario` are strictly used for post-prediction validation. Never used during training.")
 

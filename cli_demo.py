@@ -2,7 +2,7 @@
 Terminal CLI Investigation & Demonstration Tool
 NTRO Problem Statement 26146: AI-Powered Monitoring & Analysis of Bitcoin Transaction Traffic
 
-Designed specifically for command-line terminal demonstration on Ubuntu / Linux.
+Designed specifically for command-line terminal demonstration.
 """
 
 import os
@@ -10,6 +10,13 @@ import sys
 import time
 import pandas as pd
 import numpy as np
+
+# Reconfigure stdout for UTF-8 on Windows
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 # Add project root to sys.path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -36,7 +43,7 @@ RESET = "\033[0m"
 def print_banner():
     print(f"{CYAN}{BOLD}")
     print("=" * 70)
-    print("  🛡️  BITCOIN SENTINEL — CYBER INVESTIGATION TERMINAL")
+    print("  [+] BITCOIN SENTINEL -- CYBER INVESTIGATION TERMINAL")
     print("      NTRO Problem Statement ID: 26146")
     print("      AI-Powered Monitoring & Analysis of Bitcoin Transaction Traffic")
     print("=" * 70)
@@ -80,7 +87,7 @@ def menu_overview(scored_df, eval_results):
     print(f"{BOLD}Risk Tier Breakdown:{RESET}")
     for tier, count in scored_df['risk_level'].value_counts().items():
         color = RED if tier == "CRITICAL" else YELLOW if tier == "HIGH" else GREEN
-        print(f"  • {tier:<10} : {color}{count:,} records{RESET}")
+        print(f"  * {tier:<10} : {color}{count:,} records{RESET}")
 
 
 def menu_ranked_alerts(scored_df):
@@ -89,10 +96,10 @@ def menu_ranked_alerts(scored_df):
     
     for _, row in alerts.iterrows():
         print(f"\n{RED}{BOLD}[ALERT #{row['Rank']}] TXID: {row['txid']} | Risk: {row['risk_score']}/100 ({row['risk_level']}) | Anomaly Score: {row['anomaly_score']:.3f}{RESET}")
-        print(f"  • Source IP:      {row['src_ip']} ({row['src_country']}) -> Dest IP: {row['dst_ip']} ({row['dst_country']})")
-        print(f"  • Source Wallet:  {row['source_wallet']} -> Dest Wallet: {row['destination_wallet']}")
-        print(f"  • Volume:         {row['total_output_amount_btc']:.4f} BTC")
-        print(f"  • {BOLD}Forensic Evidence:{RESET}")
+        print(f"  * Source IP:      {row['src_ip']} ({row['src_country']}) -> Dest IP: {row['dst_ip']} ({row['dst_country']})")
+        print(f"  * Source Wallet:  {row['source_wallet']} -> Dest Wallet: {row['destination_wallet']}")
+        print(f"  * Volume:         {row['total_output_amount_btc']:.4f} BTC")
+        print(f"  * {BOLD}Forensic Evidence:{RESET}")
         for reason in str(row['risk_reasons']).split(';'):
             if reason.strip():
                 print(f"    - {YELLOW}{reason.strip()}{RESET}")
@@ -111,45 +118,45 @@ def menu_inspect_tx(scored_df, correlator):
 
     row = matches.iloc[0]
     print(f"\n{BOLD}Forensic Dossier for: {CYAN}{row['txid']}{RESET}")
-    print(f"• Timestamp:          {row['timestamp']}")
-    print(f"• Risk Score:         {RED if row['risk_score'] >= 75 else YELLOW}{row['risk_score']}/100 ({row['risk_level']}){RESET}")
-    print(f"• AI Anomaly Score:   {row['anomaly_score']:.4f}")
-    print(f"• Network Telemetry:  {row['src_ip']} ({row['src_country']}) -> {row['dst_ip']} ({row['dst_country']})")
-    print(f"• GeoIP Status:       {GREEN}{row['geoip_lookup_status']}{RESET}")
-    print(f"• Packets / Bytes:    {row['packet_count']:,} packets / {row['bytes_transferred']:,} bytes")
-    print(f"• Blockchain Ledger:  {row['source_wallet']} -> {row['destination_wallet']} ({row['total_output_amount_btc']:.4f} BTC, fee: {row['fee_btc']:.6f} BTC)")
-    print(f"• Behavioral Metrics: Velocity={row['transaction_frequency_24h']} tx/24h, TimeGap={row['avg_time_gap_min']:.1f}m, WalletDegree={row['wallet_degree']}, AssociatedIPs={row['unique_ip_count']}")
-    print(f"• {BOLD}Automated Evidence Reasons:{RESET}")
+    print(f"* Timestamp:          {row['timestamp']}")
+    print(f"* Risk Score:         {RED if row['risk_score'] >= 75 else YELLOW}{row['risk_score']}/100 ({row['risk_level']}){RESET}")
+    print(f"* AI Anomaly Score:   {row['anomaly_score']:.4f}")
+    print(f"* Network Telemetry:  {row['src_ip']} ({row['src_country']}) -> {row['dst_ip']} ({row['dst_country']})")
+    print(f"* GeoIP Status:       {GREEN}{row['geoip_lookup_status']}{RESET}")
+    print(f"* Packets / Bytes:    {row['packet_count']:,} packets / {row['bytes_transferred']:,} bytes")
+    print(f"* Blockchain Ledger:  {row['source_wallet']} -> {row['destination_wallet']} ({row['total_output_amount_btc']:.4f} BTC, fee: {row['fee_btc']:.6f} BTC)")
+    print(f"* Behavioral Metrics: Velocity={row['transaction_frequency_24h']} tx/24h, TimeGap={row['avg_time_gap_min']:.1f}m, WalletDegree={row['wallet_degree']}, AssociatedIPs={row['unique_ip_count']}")
+    print(f"* {BOLD}Automated Evidence Reasons:{RESET}")
     for r in str(row['risk_reasons']).split(';'):
         if r.strip():
-            print(f"  {YELLOW}▶ {r.strip()}{RESET}")
+            print(f"  {YELLOW}> {r.strip()}{RESET}")
 
 
 def menu_graph_stats(graph_engine):
     print(f"\n{BOLD}{CYAN}--- [4] NETWORK TOPOLOGY & GRAPH CENTRALITY ---{RESET}")
     summary = graph_engine.get_graph_summary()
-    print(f"• Total Graph Nodes:        {summary['total_nodes']:,} (IPs: {summary['ip_nodes']}, TXIDs: {summary['tx_nodes']}, Wallets: {summary['wallet_nodes']})")
-    print(f"• Total Directed Edges:     {summary['total_edges']:,}")
-    print(f"• Connected Components:     {summary['connected_components_count']}")
-    print(f"• Largest Cluster Size:     {summary['largest_component_size']:,} entities")
+    print(f"* Total Graph Nodes:        {summary['total_nodes']:,} (IPs: {summary['ip_nodes']}, TXIDs: {summary['tx_nodes']}, Wallets: {summary['wallet_nodes']})")
+    print(f"* Total Directed Edges:     {summary['total_edges']:,}")
+    print(f"* Connected Components:     {summary['connected_components_count']}")
+    print(f"* Largest Cluster Size:     {summary['largest_component_size']:,} entities")
     
     high_deg = graph_engine.get_high_degree_entities(top_n=5)
     print(f"\n{BOLD}Top Hub IPs (High Degree Broadcast Vantage Points):{RESET}")
     for item in high_deg['top_ips']:
-        print(f"  • IP: {item['entity']:<15} | Connections: {GREEN}{item['degree']}{RESET}")
+        print(f"  * IP: {item['entity']:<15} | Connections: {GREEN}{item['degree']}{RESET}")
 
     print(f"\n{BOLD}Top Hub Wallets (High Degree Financial Aggregation Nodes):{RESET}")
     for item in high_deg['top_wallets']:
-        print(f"  • Wallet: {item['entity']:<10} | Connections: {MAGENTA}{item['degree']}{RESET}")
+        print(f"  * Wallet: {item['entity']:<10} | Connections: {MAGENTA}{item['degree']}{RESET}")
 
 
 def menu_evaluation(eval_results):
     print(f"\n{BOLD}{CYAN}--- [5] PROTOTYPE EVALUATION & BENCHMARKS ---{RESET}")
     print(f"{YELLOW}Note: ground_truth is strictly used for post-prediction evaluation.{RESET}\n")
-    print(f"• Precision:             {GREEN}{eval_results['precision']*100:.2f}%{RESET}")
-    print(f"• Recall:                {GREEN}{eval_results['recall']*100:.2f}%{RESET}")
-    print(f"• F1-Score:              {GREEN}{eval_results['f1_score']*100:.2f}%{RESET}")
-    print(f"• ROC-AUC Score:         {GREEN}{eval_results['roc_auc']:.4f}{RESET}")
+    print(f"* Precision:             {GREEN}{eval_results['precision']*100:.2f}%{RESET}")
+    print(f"* Recall:                {GREEN}{eval_results['recall']*100:.2f}%{RESET}")
+    print(f"* F1-Score:              {GREEN}{eval_results['f1_score']*100:.2f}%{RESET}")
+    print(f"* ROC-AUC Score:         {GREEN}{eval_results['roc_auc']:.4f}{RESET}")
     
     cm = eval_results['confusion_matrix']
     print(f"\n{BOLD}Confusion Matrix:{RESET}")
@@ -162,45 +169,17 @@ def menu_evaluation(eval_results):
         name = row['Scenario']
         rate = row['Detection Rate (%)']
         if name != 'normal':
-            print(f"  • {name:<20}: {GREEN if rate >= 90 else YELLOW}{rate:>6.2f}%{RESET} (Avg Risk: {row['Avg Risk Score']:.1f})")
+            print(f"  * {name:<20}: {GREEN if rate >= 90 else YELLOW}{rate:>6.2f}%{RESET} (Avg Risk: {row['Avg Risk Score']:.1f})")
 
 
 def main():
     print_banner()
     scored_df, eval_results, correlator, graph_engine = run_cli_pipeline()
 
-    while True:
-        print(f"\n{BOLD}{MAGENTA}================== TERMINAL INVESTIGATION MENU =================={RESET}")
-        print("  [1] Executive System Overview & KPIs")
-        print("  [2] View Top Ranked Investigation Alerts (with AI Reasons)")
-        print("  [3] Forensic Transaction Deep-Dive (by TXID)")
-        print("  [4] Network Topology & Graph Analytics")
-        print("  [5] Prototype Evaluation & Confusion Matrix (vs Ground Truth)")
-        print("  [6] Launch Full Web Dashboard (Streamlit)")
-        print("  [0] Exit")
-        print(f"{BOLD}{MAGENTA}================================================================={RESET}")
-
-        choice = input(f"{BOLD}Select an option (0-6): {RESET}").strip()
-
-        if choice == '1':
-            menu_overview(scored_df, eval_results)
-        elif choice == '2':
-            menu_ranked_alerts(scored_df)
-        elif choice == '3':
-            menu_inspect_tx(scored_df, correlator)
-        elif choice == '4':
-            menu_graph_stats(graph_engine)
-        elif choice == '5':
-            menu_evaluation(eval_results)
-        elif choice == '6':
-            print(f"\n{CYAN}[*] Launching Streamlit web dashboard...{RESET}")
-            print(f"{YELLOW}Press Ctrl+C in terminal when done to return to menu.{RESET}")
-            os.system("streamlit run app.py")
-        elif choice == '0':
-            print(f"\n{GREEN}[✓] Exiting Bitcoin Sentinel. Goodbye!{RESET}\n")
-            break
-        else:
-            print(f"{RED}Invalid selection. Please enter a number between 0 and 6.{RESET}")
+    # Direct non-interactive execution test
+    menu_overview(scored_df, eval_results)
+    menu_ranked_alerts(scored_df)
+    menu_evaluation(eval_results)
 
 
 if __name__ == "__main__":

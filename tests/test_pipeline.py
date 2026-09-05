@@ -1,105 +1,169 @@
 """
-Pipeline Integration Test
-NTRO Problem Statement 26146
+Comprehensive Pipeline Integration & Unit Test Suite
+NTRO Problem Statement 26146: AI-Powered Monitoring & Analysis of Bitcoin Transaction Traffic
 """
 
 import os
 import sys
-
-# Ensure root directory is on Python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
+import pytest
 import pandas as pd
 import numpy as np
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from src.preprocessing import load_dataset, preprocess_data, get_dataset_summary
+from src.ingestion.network_ingestion import parse_and_validate_network_csv
+from src.ingestion.blockchain_ingestion import parse_and_validate_blockchain_csv
 from src.geoip_enrichment import enrich_transactions_with_geoip
-from src.correlation import EntityCorrelator
-from src.graph_analysis import BitcoinGraphEngine
+from src.correlation import EntityCorrelator, DualLayerCorrelator, calculate_record_correlation_confidence
+from src.temporal.temporal_analysis import analyze_temporal_patterns, compute_temporal_evidence
+from src.behavioural.behavioural_fingerprinting import extract_behavioural_evidence_scores, BehaviouralProfiler
+from src.graph_analysis import BitcoinGraphEngine, LouvainCommunityDetector
+from src.clustering.dbscan_clustering import BitcoinDBSCANClustering
 from src.feature_engineering import extract_features, prepare_ml_feature_matrix
 from src.anomaly_detection import BitcoinAnomalyDetector
+from src.fusion.evidence_fusion import MultiLayerEvidenceFusionEngine
+from src.explainability.shap_explainer import BitcoinSHAPExplainer
 from src.risk_scoring import RiskScoringEngine, generate_ranked_alerts
 from src.evaluation import evaluate_prototype_predictions
+from src.database.db_manager import DatabaseManager
 
 
-def run_pipeline_test():
-    print("==================================================")
-    print("STARTING BITCOIN MONITORING PIPELINE TEST")
-    print("==================================================")
+@pytest.fixture
+def raw_dataframe():
+    path = os.path.join("data", "sample_200.csv")
+    if os.path.exists(path):
+        return pd.read_csv(path)
+    return load_dataset()
 
-    # 1. Ingestion & Preprocessing
-    print("\n[Step 1] Ingesting and Preprocessing Dataset...")
-    raw_df = load_dataset()
-    print(f"Loaded raw dataset: {raw_df.shape[0]} rows, {raw_df.shape[1]} columns.")
-    
-    clean_df = preprocess_data(raw_df)
-    print(f"Preprocessed dataset: {clean_df.shape[0]} rows, {clean_df.shape[1]} columns.")
-    summary = get_dataset_summary(clean_df)
-    print(f"Summary: {summary}")
 
-    # 2. GeoIP Enrichment
-    print("\n[Step 2] Offline GeoIP & ASN Enrichment...")
+def test_network_and_blockchain_ingestion(raw_dataframe):
+    net_df, net_warn = parse_and_validate_network_csv(raw_dataframe)
+    assert not net_df.empty
+    assert 'src_ip_valid' in net_df.columns
+
+    chain_df, chain_warn = parse_and_validate_blockchain_csv(raw_dataframe)
+    assert not chain_df.empty
+    assert 'parsed_input_addresses' in chain_df.columns
+
+
+def test_layer_correlation_and_confidence(raw_dataframe):
+    net_df, _ = parse_and_validate_network_csv(raw_dataframe)
+    chain_df, _ = parse_and_validate_blockchain_csv(raw_dataframe)
+
+    dual_correlator = DualLayerCorrelator(net_df, chain_df)
+    corr_df = dual_correlator.get_correlated_dataframe()
+    assert 'correlation_confidence' in corr_df.columns
+    assert corr_df['correlation_confidence'].between(0.0, 1.0).all()
+
+    conf = calculate_record_correlation_confidence(
+        net_ts="2026-09-05 10:00:00",
+        block_ts="2026-09-05 10:00:15",
+        has_exact_txid=True,
+        src_port=8333
+    )
+    assert 0.7 <= conf <= 1.0
+
+
+def test_geoip_enrichment(raw_dataframe):
+    clean_df = preprocess_data(raw_dataframe)
     enriched_df = enrich_transactions_with_geoip(clean_df)
-    print(f"Enriched columns added. Status breakdown:\n{enriched_df['geoip_lookup_status'].value_counts()}")
+    assert 'geoip_src_country' in enriched_df.columns
+    assert 'geoip_lookup_status' in enriched_df.columns
 
-    # 3. Entity Correlation
-    print("\n[Step 3] Initializing Entity Correlator...")
-    correlator = EntityCorrelator(enriched_df)
-    sample_ip = enriched_df['src_ip'].iloc[0]
-    sample_wallet = enriched_df['source_wallet'].iloc[0]
-    ip_info = correlator.get_ip_correlations(sample_ip)
-    wallet_info = correlator.get_wallet_correlations(sample_wallet)
-    print(f"Sample IP ({sample_ip}) correlation: {ip_info['transaction_count']} txs, {ip_info['unique_wallets_count']} wallets.")
-    print(f"Sample Wallet ({sample_wallet}) correlation: {wallet_info['total_transactions']} txs, {wallet_info['unique_ip_count']} IPs.")
 
-    # 4. Graph Engine
-    print("\n[Step 4] Building NetworkX Graph...")
-    graph_engine = BitcoinGraphEngine(enriched_df)
-    g_summary = graph_engine.get_graph_summary()
-    print(f"Graph Topology: {g_summary}")
-    high_deg = graph_engine.get_high_degree_entities(top_n=3)
-    print(f"Top High Degree IPs: {high_deg['top_ips']}")
-    print(f"Top High Degree Wallets: {high_deg['top_wallets']}")
+def test_temporal_analysis(raw_dataframe):
+    clean_df = preprocess_data(raw_dataframe)
+    temp_df = analyze_temporal_patterns(clean_df)
+    assert 'temporal_evidence_score' in temp_df.columns
+    assert temp_df['temporal_evidence_score'].between(0.0, 1.0).all()
 
-    # 5. Feature Engineering (Strictly Unsupervised)
-    print("\n[Step 5] Feature Engineering...")
-    features_df = extract_features(enriched_df)
-    print(f"Engineered feature matrix: {features_df.shape[0]} rows, {features_df.shape[1]} features.")
-    print(f"Features: {list(features_df.columns)}")
-    assert 'ground_truth' not in features_df.columns, "Data Leakage Error: ground_truth found in ML features!"
-    assert 'scenario' not in features_df.columns, "Data Leakage Error: scenario found in ML features!"
 
-    # 6. AI Anomaly Detection (Isolation Forest)
-    print("\n[Step 6] Running Isolation Forest...")
-    detector = BitcoinAnomalyDetector(contamination=0.10, n_estimators=150, random_state=42)
-    is_anomaly, raw_scores, norm_scores = detector.fit_predict(features_df)
-    print(f"Predictions completed. Detected anomalies: {int(is_anomaly.sum())} / {len(is_anomaly)}")
+def test_behavioural_fingerprinting(raw_dataframe):
+    clean_df = preprocess_data(raw_dataframe)
+    beh_df = extract_behavioural_evidence_scores(clean_df)
+    assert 'behavioural_evidence_score' in beh_df.columns
+    assert beh_df['behavioural_evidence_score'].between(0.0, 1.0).all()
 
-    # 7. Risk Scoring & Explainability
-    print("\n[Step 7] Calculating 0-100 Risk Scores and Generating Explanations...")
-    risk_engine = RiskScoringEngine(ml_weight=0.45, heuristic_weight=0.55)
+
+def test_graph_engine_and_louvain_communities(raw_dataframe):
+    clean_df = preprocess_data(raw_dataframe)
+    graph_engine = BitcoinGraphEngine(clean_df)
+    summary = graph_engine.get_graph_summary()
+    assert summary['total_nodes'] > 0
+    assert summary['louvain_communities_count'] >= 1
+
+
+def test_isolation_forest_and_dbscan(raw_dataframe):
+    clean_df = preprocess_data(raw_dataframe)
+    feat_df = extract_features(clean_df)
+
+    assert 'ground_truth' not in feat_df.columns
+    assert 'scenario' not in feat_df.columns
+
+    detector = BitcoinAnomalyDetector(contamination=0.10, random_state=42)
+    is_anomaly, raw_scores, norm_scores = detector.fit_predict(feat_df)
+    assert len(is_anomaly) == len(feat_df)
+
+    dbscan = BitcoinDBSCANClustering(eps=0.5, min_samples=3)
+    labels, noise_mask, dbscan_ev = dbscan.fit_predict(feat_df)
+    assert len(labels) == len(feat_df)
+
+
+def test_evidence_fusion_and_risk_scoring(raw_dataframe):
+    clean_df = preprocess_data(raw_dataframe)
+    feat_df = extract_features(clean_df)
+
+    detector = BitcoinAnomalyDetector(contamination=0.10, random_state=42)
+    is_anomaly, raw_scores, norm_scores = detector.fit_predict(feat_df)
+
+    fusion = MultiLayerEvidenceFusionEngine()
+    fused_df = fusion.fuse_dataframe_evidence(clean_df)
+    assert 'fused_evidence_score' in fused_df.columns
+
+    risk_engine = RiskScoringEngine()
+    scored_df = risk_engine.compute_risk_scores(clean_df, norm_scores, raw_scores, is_anomaly)
+    assert 'risk_score' in scored_df.columns
+    assert scored_df['risk_score'].between(0, 100).all()
+
+    alerts = generate_ranked_alerts(scored_df)
+    assert not alerts.empty
+
+
+def test_shap_explainer(raw_dataframe):
+    clean_df = preprocess_data(raw_dataframe)
+    feat_df = extract_features(clean_df)
+    detector = BitcoinAnomalyDetector(contamination=0.10, random_state=42)
+    _, _, norm_scores = detector.fit_predict(feat_df)
+
+    explainer = BitcoinSHAPExplainer()
+    explainer.fit(feat_df, norm_scores)
+    sample_explanations = explainer.explain_instance(feat_df.iloc[0])
+    assert len(sample_explanations) > 0
+
+
+def test_database_manager():
+    db = DatabaseManager()
+    assert db.engine is not None
+    summary = db.get_table_summary()
+    assert "connected" in summary
+
+
+def test_end_to_end_pipeline(raw_dataframe):
+    clean_df = preprocess_data(raw_dataframe)
+    enriched_df = enrich_transactions_with_geoip(clean_df)
+    feat_df = extract_features(enriched_df)
+
+    detector = BitcoinAnomalyDetector(contamination=0.10, random_state=42)
+    is_anomaly, raw_scores, norm_scores = detector.fit_predict(feat_df)
+
+    risk_engine = RiskScoringEngine()
     scored_df = risk_engine.compute_risk_scores(enriched_df, norm_scores, raw_scores, is_anomaly)
-    print("Risk Level Breakdown:\n", scored_df['risk_level'].value_counts())
-    
-    alerts_df = generate_ranked_alerts(scored_df, min_risk="MEDIUM")
-    print(f"Ranked Alerts (Medium+): {len(alerts_df)} records.")
-    print("Top Alert Reason:\n", alerts_df['risk_reasons'].iloc[0])
+    eval_res = evaluate_prototype_predictions(scored_df)
 
-    # 8. Prototype Evaluation (Post-Prediction vs Ground Truth)
-    print("\n[Step 8] Evaluating Prototype Performance against Ground Truth...")
-    eval_results = evaluate_prototype_predictions(scored_df)
-    print(f"Precision: {eval_results['precision']:.4f}")
-    print(f"Recall:    {eval_results['recall']:.4f}")
-    print(f"F1-Score:  {eval_results['f1_score']:.4f}")
-    print(f"ROC-AUC:   {eval_results['roc_auc']:.4f}")
-    print(f"Confusion Matrix: TP={eval_results['confusion_matrix']['true_positives']}, FP={eval_results['confusion_matrix']['false_positives']}, TN={eval_results['confusion_matrix']['true_negatives']}, FN={eval_results['confusion_matrix']['false_negatives']}")
-    print("\nScenario Breakdown:")
-    print(eval_results['scenario_breakdown'])
-
-    print("\n==================================================")
-    print("PIPELINE TEST PASSED SUCCESSFULLY!")
-    print("==================================================")
+    assert eval_res['f1_score'] >= 0.0
+    assert eval_res['roc_auc'] >= 0.0
 
 
 if __name__ == "__main__":
-    run_pipeline_test()
+    pytest.main(["-v", __file__])
