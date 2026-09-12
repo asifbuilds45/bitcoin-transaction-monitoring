@@ -110,105 +110,144 @@ The dataset comprises **10,000 synthetic records** reflecting realistic Bitcoin 
 
 ---
 
-## 4. Offline GeoIP & Network Enrichment
+### 4. Two-Dataset Ingestion & Schema Validation
 
-The system includes a dedicated offline MaxMind GeoIP2/GeoLite2 integration (`src/geoip_enrichment.py`).
-- **Target Files:** `data/GeoLite2-Country.mmdb` and `data/GeoLite2-ASN.mmdb`.
-- **Network Isolation:** Operates 100% locally. Zero internet connections or API requests are made.
-- **Graceful Fallback Handling:**
-  - When valid public IPs match local `.mmdb` databases: `geoip_lookup_status = "geoip_resolved"`.
-  - For synthetic or private range IP addresses (e.g., `10.x.x.x`) or if `.mmdb` files are absent: retains pre-populated country/ASN dataset values and assigns `geoip_lookup_status = "synthetic_fallback"`.
-  - **The application never crashes** when database files are missing.
+The prototype ingests and validates two independent datasets:
+1. **Network-Layer Data:** P2P gossip telemetry, source/destination IPs, ports, connection duration, packet counts, bytes.
+2. **Blockchain-Layer Data:** On-chain ledger blocks, UTXO inputs/outputs, miner fees, and wallet addresses.
+
+**Multi-Format Support:** Ingestion modules (`src/ingestion/`) support **CSV**, **JSON**, and **XML** formats natively without internet access. Both datasets must be independently schema-validated before investigation execution is enabled.
 
 ---
 
-## 5. Machine Learning & Behavioral Analytics
+## 5. Offline GeoIP & Network Enrichment
 
-### Why Isolation Forest?
-1. **Unsupervised Principle:** Real-world cyber monitoring lacks real-time attack labels. Isolation Forest learns baseline distributions without requiring pre-labeled training datasets.
-2. **Path Length Anomaly Isolation:** In high-dimensional feature space, anomalous behaviors (e.g., extreme velocity, unusual UTXO fan-outs) are isolated with significantly shorter tree paths than normal cluster points.
-3. **Multi-Modal Feature Synthesis:** Simultaneously processes network telemetry (`packet_count`, `bytes_transferred`, `connection_duration_sec`) and on-chain graph metrics (`wallet_degree`, `unique_ip_count`, `num_inputs`, `num_outputs`).
-4. **Computational Efficiency:** Scales linearly $O(n \log n)$, allowing instant processing of 10,000+ transaction batches on standard commodity CPUs.
-
-### Risk Scoring Framework (0–100)
-Risk scores are calculated by combining normalized Isolation Forest anomaly scores with multi-factor heuristic triggers:
-- **0–24: LOW RISK** (Normal baseline transactions)
-- **25–49: MEDIUM RISK** (Minor deviations or elevated frequency)
-- **50–74: HIGH RISK** (Multi-indicator anomalies, suspicious hub connectivity)
-- **75–100: CRITICAL RISK** (Severe behavioral anomalies, multi-country hopping, mixer fan-out/fan-in)
+Offline MaxMind GeoIP2/GeoLite2 integration (`src/geoip_enrichment.py`):
+- **Local Databases:** `data/geoip/GeoLite2-Country.mmdb` and `data/geoip/GeoLite2-ASN.mmdb`.
+- **Network Isolation:** Operates 100% locally with zero internet connections or external API calls.
+- **Strict Non-Fabrication:** Private, loopback, link-local, and synthetic IP ranges (e.g. `10.x.x.x`, `192.168.x.x`, `172.16-31.x.x`, `127.0.0.1`) strictly resolve to `Country = Unknown` and `ASN = Unknown`.
+- **Graceful Fallback:** If MMDB files are absent, the application falls back safely without runtime errors.
 
 ---
 
-## 6. Streamlit Dashboard Modules
+## 6. Network–Blockchain Correlation & Confidence Score
 
-Launch the interactive dashboard with `streamlit run app.py` to access 7 specialized views:
-1. **Overview & Executive KPIs:** High-level summary metrics, anomaly/risk distributions, country activity profiles, and top suspicious entities.
-2. **Transaction Investigation:** Detailed inspector with search/filtering by TXID, Wallet, or IP, complete UTXO breakdown, GeoIP enrichment panel, and natural-language risk reasons.
-3. **IP-TXID-Wallet Correlation:** Interactive 2D Plotly network graph rendering multi-modal entity links (Cyan=IP, Orange=TXID, Green=Wallet) with customizable exploration radius.
-4. **Graph Analytics & Topology:** Hub entity identification, degree distributions, and clustering metrics.
-5. **AI Anomaly Analysis:** Isolation Forest score distribution curves, feature separation boxplots, and algorithmic rationale.
-6. **Ranked Investigation Alerts:** Prioritized triage queue sorted by risk score with CSV export capabilities.
-7. **Prototype Evaluation:** Independent benchmark against ground truth displaying Precision, Recall, F1-Score, Confusion Matrix Heatmap, and Scenario-specific detection rates.
+The correlation engine (`src/correlation/correlator.py`) establishes relationships:
+- $\text{IP} \rightarrow \text{TXID}$
+- $\text{TXID} \rightarrow \text{Input/Output Wallets}$
+- $\text{Wallet} \rightarrow \text{Wallet (Fund-flows)}$
+- $\text{IP} \rightarrow \text{Wallet (Network vantage point association)}$
+
+> **Non-Attribution Principle:** The system strictly treats IP addresses as *network observations associated with transaction/wallet activity*, never claiming that an IP address identifies the wallet owner.
+
+### Normalized Correlation Confidence Score (0.0 to 1.0 / 0–100%)
+A mathematical confidence measure distinct from anomaly and risk scores:
+1. **Exact TXID Match (45%):** Direct cryptographic transaction identifier alignment between telemetry and block data.
+2. **Temporal Proximity (30%):** Proximity between network packet broadcast timestamp and blockchain block confirmation timestamp ($\le 60\text{s} \rightarrow 30\%$, $\le 300\text{s} \rightarrow 25\%$, $\le 1800\text{s} \rightarrow 15\%$).
+3. **P2P Protocol Consistency (15%):** Verification of Bitcoin P2P protocol compliance and standard listening ports (8333, 18333, 38333) over TCP.
+4. **Observation Repeatability (10%):** Multi-burst verification across repeated network vantage points.
 
 ---
 
-## 7. Ubuntu / Linux Setup & Execution Guide
+## 7. Dual AI/ML & Graph Community Analytics
 
-### Step 1: Create and Activate Python Virtual Environment
+### 1. Isolation Forest (Unsupervised Anomaly Detection)
+Identifies multi-dimensional behavioral and network anomalies without requiring labeled training datasets. Produces a continuous anomaly score $\in [0.0, 1.0]$.
+
+### 2. DBSCAN (Behavioural Clustering & Noise Discovery)
+Partitions transaction traffic into dense behavioral clusters using scaled feature space. Identifies unclustered noise points ($\text{cluster} = -1$) to detect isolated, aberrant transaction behaviors.
+
+### 3. Louvain Modularity Community Detection
+NetworkX directed entity graph partitions IP, TXID, and Wallet nodes into modular graph communities, calculating community density, entity counts, and internal link density.
+
+### 4. Multi-Layer Evidence Fusion & Risk Scoring (0–100)
+Combines 9 independent normalized evidence channels:
+- Isolation Forest Anomaly Evidence (20%)
+- DBSCAN Clustering & Noise Evidence (10%)
+- Louvain Graph Community Modularity (10%)
+- Temporal Velocity Evidence (12%)
+- Behavioural Dispersion Evidence (13%)
+- Graph Degree Centrality (10%)
+- Geo/ASN Multi-Vantage Evidence (8%)
+- Blockchain UTXO Volume & Fee Evidence (9%)
+- Network Telemetry Burst Evidence (8%)
+
+---
+
+## 8. Investigator-Centric Capabilities
+
+### 1. Investigation Path Reconstruction (`src/investigation/path_reconstruction.py`)
+Rather than presenting isolated alerts, the system reconstructs the connected multi-hop investigation trail:
+$$\text{Source IP} \xrightarrow{\text{network observation}} \text{TXID} \xrightarrow{\text{input / output}} \text{Wallet} \xrightarrow{\text{fund-flow}} \text{Related Wallet} \xrightarrow{\text{connected transaction}} \text{Next TXID}$$
+- **Configurable Traversal Depth:** Bounded search depth (1 to 5 hops, default 3) to prevent UI freezing and graph explosion.
+- **Priority Ranking:** Ranks paths by composite transaction risk, transfer amounts, and connection relevance.
+- **Strict Non-Attribution Semantics:** Treats IP addresses strictly as *network observations associated with transaction broadcast activity*, never asserting wallet ownership.
+- **UI Location:** Accessible in Tab 2 (Forensic Transaction Deep-Dive) and within each Case Drill-Down view.
+
+### 2. Forensic Evidence Timeline (`src/investigation/timeline_builder.py`)
+Reconstructs a strictly chronological activity sequence answering: *"What happened first? What happened next? When did suspicious behaviour emerge?"*
+- **Actual Timestamps Only:** Built strictly from real dataset timestamps (`network_timestamp`, `timestamp`). No fabricated or synthetic system times.
+- **Event Types Captured:**
+  - `NETWORK_OBSERVATION`: P2P gossip broadcast observed at source IP vantage point.
+  - `TRANSACTION_OBSERVED`: On-chain confirmation with block height, transfer volume, and miner fee.
+  - `INPUT_FUNDING`: Source wallet providing input UTXOs.
+  - `OUTPUT_DISPERSAL`: Transaction dispersing funds to destination wallet.
+  - `BEHAVIOURAL_CLUSTERING`: Unsupervised DBSCAN cluster membership or sparse noise detection (-1).
+  - `INVESTIGATION_ALERT`: Multi-layer fusion generating High/Critical risk alerts with key forensic signals.
+- **Case Timeline Aggregation:** Chronologically merges events across multiple related transactions in an incident.
+- **UI Location:** Accessible in Tab 2 (Forensic Transaction Deep-Dive) and within each Case Drill-Down view.
+
+### 3. Alert Deduplication & Case Grouping (`src/investigation/case_grouping.py`)
+Solves alert fatigue by consolidating strongly connected anomalous transactions into cohesive investigation cases (`CASE-001`, `CASE-002`, ...):
+- **Deterministic Grouping Evidence:**
+  1. *Shared Source / Destination Wallets:* Multiple anomalous transactions utilizing identical wallet entities.
+  2. *Sequential Fund-Flow Chains:* Direct on-chain linkage where the output of transaction A feeds the input of transaction B.
+  3. *Temporal Network Correlation:* Transactions broadcast from the same network IP within a tight temporal window ($\le 2$ hours).
+  4. *Dense Behavioural DBSCAN Clusters:* Common membership in dense behavioural clusters within close temporal proximity ($\le 4$ hours).
+- **Linear-Time Graph Clustering:** $O(N)$ star and temporal path construction across inverted indices for instant sub-second grouping.
+- **Stable Session Case IDs:** Deterministically sorted by maximum risk score, transaction count, and volume.
+- **Investigation Cases Dashboard:** Dedicated view in Tab 6 providing case summary KPIs, multi-transaction filtering, grouped transaction tables, case path reconstruction, and case evidence timelines.
+
+---
+
+
+## 9. Forensic PDF Threat Report Generation
+
+Built with **ReportLab**, the system generates comprehensive forensic security threat reports directly from Tab 6:
+- **Single PDF, Complete Anomaly Coverage:** Generates one unified PDF containing individual forensic reports for all anomalous transactions.
+- **Filter Independence:** Always includes the complete set of anomalies regardless of the currently active UI risk filter.
+- **Structured Forensic Template:** Each transaction includes:
+  - **PROFILE:** Report ID, TXID, Risk Level, Date, Time.
+  - **ACTORS:** Source IP, Destination IP, Wallet, Country (with ISO code), ASN (with Organization).
+  - **DIAGNOSTIC:** Data-driven "Why Anomalous" evidence, Anomaly Score, Risk Score.
+  - **RECOMMENDED ACTIONS:** Wallet tracing, counterparty inspection, and entity monitoring.
+  - **REMARKS:** Risk-level specific investigative notes.
+
+---
+
+## 10. Ubuntu / Linux Setup & Execution Guide
+
 ```bash
-# Update package list and install Python 3 venv if needed
-sudo apt update
-sudo apt install -y python3 python3-venv python3-pip
+# 1. Clone repository and navigate to folder
+cd "Bitcoin Monitoring"
 
-# Navigate to project directory
-cd bitcoin-monitoring
+# 2. Activate virtual environment
+source ./venv/bin/activate
 
-# Create virtual environment
-python3 -m venv venv
-
-# Activate environment
-source venv/bin/activate
-```
-
-### Step 2: Install Required Dependencies
-```bash
-pip install --upgrade pip
+# 3. Install required dependencies
 pip install -r requirements.txt
-```
 
-### Step 3: Run Automated Pipeline & Test Suite
-```bash
-python tests/test_pipeline.py
-```
+# 4. Run automated unit & integration test suite
+python3 -m unittest -v tests/test_pipeline.py
 
-### Step 4: Launch Streamlit Dashboard
-```bash
+# 5. Launch interactive Streamlit prototype
 streamlit run app.py
 ```
-Open your browser at `http://localhost:8501`.
 
 ---
 
-## 8. Benchmark Evaluation Results
+## 11. Research & Defensive Disclaimer
 
-Validation results obtained during post-prediction evaluation:
-
-| Metric | Score |
-|---|---|
-| **Precision** | **98.90%** |
-| **Recall** | **98.90%** |
-| **F1-Score** | **98.90%** |
-| **ROC-AUC** | **1.0000** |
-| **True Positives (TP)** | 989 |
-| **True Negatives (TN)** | 8,989 |
-| **False Positives (FP)** | 11 |
-| **False Negatives (FN)** | 11 |
-
----
-
-## 9. Research & Cybersecurity Disclaimer
 
 > [!NOTE]
-> This prototype is developed for defensive cybersecurity research, threat analysis, and academic demonstration under NTRO Problem Statement 26146.
-> 
-> The underlying dataset is synthetic. This system identifies anomalous behavioral patterns and produces **investigative leads** for human analysts; it does not constitute conclusive attribution or proof of illicit activity.
+> Developed strictly for defensive cybersecurity monitoring and investigation under SIH / NTRO Problem Statement 26146. All analysis operates on local synthetic datasets and local MaxMind databases with zero external connectivity.

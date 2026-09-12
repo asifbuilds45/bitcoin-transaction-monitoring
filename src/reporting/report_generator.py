@@ -415,12 +415,27 @@ if REPORTLAB_AVAILABLE:
         # --- ACTORS ---
         elements.append(Paragraph("ACTORS", styles["SectionHead"]))
         elements.append(Spacer(1, 2))
+
+        country_name = _safe_str(row.get("geoip_src_country", row.get("src_country")))
+        country_code = _safe_str(row.get("geoip_src_country_code"))
+        if country_code != "Unknown" and country_code != country_name and country_name != "Unknown":
+            country_display = f"{country_name} ({country_code})"
+        else:
+            country_display = country_name
+
+        asn_val = _safe_str(row.get("geoip_src_asn", row.get("src_asn")))
+        asn_org = _safe_str(row.get("geoip_src_org"))
+        if asn_org != "Unknown" and asn_val != "Unknown":
+            asn_display = f"{asn_val} ({asn_org})"
+        else:
+            asn_display = asn_val
+
         elements.append(_build_kv_table([
             ("Source IP", _safe_str(row.get("src_ip"))),
             ("Destination IP", _safe_str(row.get("dst_ip"))),
             ("Wallet", _safe_str(row.get("source_wallet", row.get("destination_wallet")))),
-            ("Country", _safe_str(row.get("geoip_src_country", row.get("src_country")))),
-            ("ASN", _safe_str(row.get("geoip_src_asn", row.get("src_asn")))),
+            ("Country", country_display),
+            ("ASN", asn_display),
         ], styles))
         elements.append(Spacer(1, 4))
 

@@ -29,13 +29,30 @@ class GeoIPEnricher:
     Operates strictly locally with zero outbound network calls.
     """
 
+def _find_default_db_path(filename: str) -> str:
+    """Locate GeoLite2 database file in data/geoip/ or data/."""
+    p1 = os.path.join("data", "geoip", filename)
+    if os.path.exists(p1):
+        return p1
+    p2 = os.path.join("data", filename)
+    if os.path.exists(p2):
+        return p2
+    return p1
+
+
+class GeoIPEnricher:
+    """
+    Offline GeoIP and ASN enrichment engine using local MaxMind GeoLite2 databases.
+    Operates strictly locally with zero outbound network calls.
+    """
+
     def __init__(
         self,
-        country_db_path: str = os.path.join("data", "GeoLite2-Country.mmdb"),
-        asn_db_path: str = os.path.join("data", "GeoLite2-ASN.mmdb")
+        country_db_path: Optional[str] = None,
+        asn_db_path: Optional[str] = None
     ):
-        self.country_db_path = country_db_path
-        self.asn_db_path = asn_db_path
+        self.country_db_path = country_db_path or _find_default_db_path("GeoLite2-Country.mmdb")
+        self.asn_db_path = asn_db_path or _find_default_db_path("GeoLite2-ASN.mmdb")
         self.country_reader = None
         self.asn_reader = None
         self.databases_loaded = False
@@ -64,74 +81,120 @@ class GeoIPEnricher:
                 logger.warning(f"Failed to open GeoIP ASN DB at {self.asn_db_path}: {e}")
 
         self.databases_loaded = (self.country_reader is not None or self.asn_reader is not None)
-        if not self.databases_loaded:
-            print("GeoIP database not available — using synthetic dataset enrichment.")
 
     def is_private_or_synthetic(self, ip_str: str) -> bool:
-        """Check if an IP is private, loopback, link-local, or synthetic."""
+        """Check if an IP is private, loopback, link-local, multicast, or synthetic."""
         try:
             ip_obj = ipaddress.ip_address(ip_str.strip())
-            return ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local
+            return (
+                ip_obj.is_private or
+                ip_obj.is_loopback or
+                ip_obj.is_link_local or
+                ip_obj.is_multicast or
+                ip_obj.is_reserved
+            )
         except ValueError:
             return True
 
-    def lookup_ip(self, ip_str: str, fallback_country: str = "UNKNOWN", fallback_asn: str = "UNKNOWN") -> Dict[str, Any]:
+    def get_status(self) -> Dict[str, Any]:
+        """Return status dictionary of local GeoLite2 databases."""
+        country_loaded = self.country_reader is not None
+        asn_loaded = self.asn_reader is not None
+        is_offline = country_loaded or asn_loaded
+        return {
+            "country_db_loaded": country_loaded,
+            "asn_db_loaded": asn_loaded,
+            "country_status": "Loaded" if country_loaded else "Not available",
+            "asn_status": "Loaded" if asn_loaded else "Not available",
+            "mode": "Offline" if is_offline else "Fallback",
+            "country_db_path": self.country_db_path,
+            "asn_db_path": self.asn_db_path
+        }
+
+    def lookup_ip(self, ip_str: str, fallback_country: str = "Unknown", fallback_asn: str = "Unknown") -> Dict[str, Any]:
         """
         Perform local offline lookup for a single IP address.
         
-        Args:
-            ip_str: Target IP address string.
-            fallback_country: Country value from dataset to use if lookup fails/private.
-            fallback_asn: ASN value from dataset to use if lookup fails/private.
-            
-        Returns:
-            Dict containing country, country_code, asn, org, and lookup status.
+        Private/synthetic/invalid IPs strictly return 'Unknown' for Country and ASN.
+        Never fabricates location or network entity information.
         """
+        clean_ip = str(ip_str).strip() if ip_str is not None else ""
+
+        # Validate IP syntax and private status
+        try:
+            ip_obj = ipaddress.ip_address(clean_ip)
+            is_priv = (
+                ip_obj.is_private or
+                ip_obj.is_loopback or
+                ip_obj.is_link_local or
+                ip_obj.is_multicast or
+                ip_obj.is_reserved
+            )
+        except ValueError:
+            return {
+                "country": "Unknown",
+                "country_code": "Unknown",
+                "asn": "Unknown",
+                "asn_org": "Unknown",
+                "lookup_status": "invalid_ip"
+            }
+
+        # Private / synthetic IP handling (strictly return Unknown)
+        if is_priv:
+            return {
+                "country": "Unknown",
+                "country_code": "Unknown",
+                "asn": "Unknown",
+                "asn_org": "Unknown",
+                "lookup_status": "private_ip"
+            }
+
+        # If MMDB databases are not loaded, fallback cleanly to existing dataset attributes
+        if not self.databases_loaded:
+            fb_c = fallback_country if fallback_country and str(fallback_country).strip().upper() not in ["NAN", "NONE", ""] else "Unknown"
+            fb_a = fallback_asn if fallback_asn and str(fallback_asn).strip().upper() not in ["NAN", "NONE", ""] else "Unknown"
+            return {
+                "country": fb_c,
+                "country_code": fb_c,
+                "asn": fb_a,
+                "asn_org": "Unknown",
+                "lookup_status": "synthetic_fallback"
+            }
+
         result = {
-            "country": fallback_country,
-            "country_code": fallback_country,
-            "asn": fallback_asn,
-            "asn_org": "N/A",
-            "lookup_status": "synthetic_fallback"
+            "country": "Unknown",
+            "country_code": "Unknown",
+            "asn": "Unknown",
+            "asn_org": "Unknown",
+            "lookup_status": "not_found"
         }
 
-        if not self.databases_loaded or self.is_private_or_synthetic(ip_str):
-            # Synthetic 10.x.x.x or missing DB -> use synthetic fallback
-            return result
-
-        resolved_country = False
-        resolved_asn = False
-
-        # Lookup country
+        # Lookup country in GeoLite2 Country MMDB
         if self.country_reader:
             try:
-                resp = self.country_reader.country(ip_str)
+                resp = self.country_reader.country(clean_ip)
                 if resp.country and resp.country.name:
                     result["country"] = resp.country.name
-                    result["country_code"] = resp.country.iso_code or fallback_country
-                    resolved_country = True
+                    result["country_code"] = resp.country.iso_code or "Unknown"
             except (geoip2.errors.AddressNotFoundError, ValueError):
                 pass
             except Exception as e:
-                logger.debug(f"Country lookup error for {ip_str}: {e}")
+                logger.debug(f"Country lookup error for {clean_ip}: {e}")
 
-        # Lookup ASN
+        # Lookup ASN in GeoLite2 ASN MMDB
         if self.asn_reader:
             try:
-                resp_asn = self.asn_reader.asn(ip_str)
+                resp_asn = self.asn_reader.asn(clean_ip)
                 if resp_asn.autonomous_system_number:
                     result["asn"] = f"AS{resp_asn.autonomous_system_number}"
-                    result["asn_org"] = resp_asn.autonomous_system_organization or "Unknown Org"
-                    resolved_asn = True
+                    result["asn_org"] = resp_asn.autonomous_system_organization or "Unknown"
             except (geoip2.errors.AddressNotFoundError, ValueError):
                 pass
             except Exception as e:
-                logger.debug(f"ASN lookup error for {ip_str}: {e}")
+                logger.debug(f"ASN lookup error for {clean_ip}: {e}")
 
-        if resolved_country or resolved_asn:
+        if result["country"] != "Unknown" or result["asn"] != "Unknown":
             result["lookup_status"] = "geoip_resolved"
-        else:
-            result["lookup_status"] = "synthetic_fallback"
 
         return result
 
@@ -142,53 +205,112 @@ class GeoIPEnricher:
         Adds columns:
         - geoip_src_country
         - geoip_dst_country
+        - geoip_src_country_code
+        - geoip_dst_country_code
         - geoip_src_asn
         - geoip_dst_asn
+        - geoip_src_org
+        - geoip_dst_org
         - geoip_lookup_status
         """
         df_enriched = df.copy(deep=True)
 
-        # Optimization: Cache IP lookups across repeated IP addresses
-        unique_src_ips = df_enriched[['src_ip', 'src_country', 'src_asn']].drop_duplicates()
-        unique_dst_ips = df_enriched[['dst_ip', 'dst_country', 'dst_asn']].drop_duplicates()
+        # Optimization: Cache IP lookups across unique IP addresses
+        has_src_c = 'src_country' in df_enriched.columns
+        has_src_a = 'src_asn' in df_enriched.columns
+        has_dst_c = 'dst_country' in df_enriched.columns
+        has_dst_a = 'dst_asn' in df_enriched.columns
+
+        unique_src_ips = df_enriched['src_ip'].dropna().unique() if 'src_ip' in df_enriched.columns else []
+        unique_dst_ips = df_enriched['dst_ip'].dropna().unique() if 'dst_ip' in df_enriched.columns else []
 
         src_lookup_map = {}
-        for _, row in unique_src_ips.iterrows():
-            src_lookup_map[row['src_ip']] = self.lookup_ip(
-                row['src_ip'],
-                fallback_country=str(row['src_country']),
-                fallback_asn=str(row['src_asn'])
-            )
+        for ip in unique_src_ips:
+            fb_c = "Unknown"
+            fb_a = "Unknown"
+            if has_src_c:
+                row_match = df_enriched[df_enriched['src_ip'] == ip]
+                if not row_match.empty:
+                    fb_c = str(row_match['src_country'].iloc[0])
+            if has_src_a:
+                row_match = df_enriched[df_enriched['src_ip'] == ip]
+                if not row_match.empty:
+                    fb_a = str(row_match['src_asn'].iloc[0])
+            src_lookup_map[ip] = self.lookup_ip(ip, fallback_country=fb_c, fallback_asn=fb_a)
 
         dst_lookup_map = {}
-        for _, row in unique_dst_ips.iterrows():
-            dst_lookup_map[row['dst_ip']] = self.lookup_ip(
-                row['dst_ip'],
-                fallback_country=str(row['dst_country']),
-                fallback_asn=str(row['dst_asn'])
-            )
+        for ip in unique_dst_ips:
+            fb_c = "Unknown"
+            fb_a = "Unknown"
+            if has_dst_c:
+                row_match = df_enriched[df_enriched['dst_ip'] == ip]
+                if not row_match.empty:
+                    fb_c = str(row_match['dst_country'].iloc[0])
+            if has_dst_a:
+                row_match = df_enriched[df_enriched['dst_ip'] == ip]
+                if not row_match.empty:
+                    fb_a = str(row_match['dst_asn'].iloc[0])
+            dst_lookup_map[ip] = self.lookup_ip(ip, fallback_country=fb_c, fallback_asn=fb_a)
 
         # Vectorized mapping
-        df_enriched['geoip_src_country'] = df_enriched['src_ip'].map(lambda ip: src_lookup_map.get(ip, {}).get('country', 'UNKNOWN'))
-        df_enriched['geoip_dst_country'] = df_enriched['dst_ip'].map(lambda ip: dst_lookup_map.get(ip, {}).get('country', 'UNKNOWN'))
-        df_enriched['geoip_src_asn'] = df_enriched['src_ip'].map(lambda ip: src_lookup_map.get(ip, {}).get('asn', 'UNKNOWN'))
-        df_enriched['geoip_dst_asn'] = df_enriched['dst_ip'].map(lambda ip: dst_lookup_map.get(ip, {}).get('asn', 'UNKNOWN'))
-        df_enriched['geoip_lookup_status'] = df_enriched['src_ip'].map(lambda ip: src_lookup_map.get(ip, {}).get('lookup_status', 'synthetic_fallback'))
+        if 'src_ip' in df_enriched.columns:
+            df_enriched['geoip_src_country'] = df_enriched['src_ip'].map(lambda ip: src_lookup_map.get(ip, {}).get('country', 'Unknown'))
+            df_enriched['geoip_src_country_code'] = df_enriched['src_ip'].map(lambda ip: src_lookup_map.get(ip, {}).get('country_code', 'Unknown'))
+            df_enriched['geoip_src_asn'] = df_enriched['src_ip'].map(lambda ip: src_lookup_map.get(ip, {}).get('asn', 'Unknown'))
+            df_enriched['geoip_src_org'] = df_enriched['src_ip'].map(lambda ip: src_lookup_map.get(ip, {}).get('asn_org', 'Unknown'))
+            df_enriched['geoip_lookup_status'] = df_enriched['src_ip'].map(lambda ip: src_lookup_map.get(ip, {}).get('lookup_status', 'synthetic_fallback'))
+        else:
+            df_enriched['geoip_src_country'] = 'Unknown'
+            df_enriched['geoip_src_country_code'] = 'Unknown'
+            df_enriched['geoip_src_asn'] = 'Unknown'
+            df_enriched['geoip_src_org'] = 'Unknown'
+            df_enriched['geoip_lookup_status'] = 'synthetic_fallback'
+
+        if 'dst_ip' in df_enriched.columns:
+            df_enriched['geoip_dst_country'] = df_enriched['dst_ip'].map(lambda ip: dst_lookup_map.get(ip, {}).get('country', 'Unknown'))
+            df_enriched['geoip_dst_country_code'] = df_enriched['dst_ip'].map(lambda ip: dst_lookup_map.get(ip, {}).get('country_code', 'Unknown'))
+            df_enriched['geoip_dst_asn'] = df_enriched['dst_ip'].map(lambda ip: dst_lookup_map.get(ip, {}).get('asn', 'Unknown'))
+            df_enriched['geoip_dst_org'] = df_enriched['dst_ip'].map(lambda ip: dst_lookup_map.get(ip, {}).get('asn_org', 'Unknown'))
+        else:
+            df_enriched['geoip_dst_country'] = 'Unknown'
+            df_enriched['geoip_dst_country_code'] = 'Unknown'
+            df_enriched['geoip_dst_asn'] = 'Unknown'
+            df_enriched['geoip_dst_org'] = 'Unknown'
 
         return df_enriched
 
     def close(self) -> None:
         """Close database handles cleanly."""
         if self.country_reader:
-            self.country_reader.close()
+            try:
+                self.country_reader.close()
+            except Exception:
+                pass
+            self.country_reader = None
         if self.asn_reader:
-            self.asn_reader.close()
+            try:
+                self.asn_reader.close()
+            except Exception:
+                pass
+            self.asn_reader = None
+
+
+def get_geoip_status(
+    country_db_path: Optional[str] = None,
+    asn_db_path: Optional[str] = None
+) -> Dict[str, Any]:
+    """Query local GeoIP database availability without running full enrichment."""
+    enricher = GeoIPEnricher(country_db_path=country_db_path, asn_db_path=asn_db_path)
+    try:
+        return enricher.get_status()
+    finally:
+        enricher.close()
 
 
 def enrich_transactions_with_geoip(
     df: pd.DataFrame,
-    country_db_path: str = os.path.join("data", "GeoLite2-Country.mmdb"),
-    asn_db_path: str = os.path.join("data", "GeoLite2-ASN.mmdb")
+    country_db_path: Optional[str] = None,
+    asn_db_path: Optional[str] = None
 ) -> pd.DataFrame:
     """Convenience wrapper for offline GeoIP enrichment."""
     enricher = GeoIPEnricher(country_db_path=country_db_path, asn_db_path=asn_db_path)

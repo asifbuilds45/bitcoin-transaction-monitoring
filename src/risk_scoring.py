@@ -126,6 +126,15 @@ def generate_ranked_alerts(
     if 'risk_level_normalized' not in df_copy.columns:
         df_copy['risk_level_normalized'] = df_copy['risk_level'].astype(str).str.strip().str.upper()
 
+    if 'confidence_score' not in df_copy.columns:
+        if 'correlation_confidence' in df_copy.columns:
+            df_copy['confidence_score'] = df_copy['correlation_confidence']
+        else:
+            df_copy['confidence_score'] = 0.85
+
+    if 'correlation_confidence_pct' not in df_copy.columns:
+        df_copy['correlation_confidence_pct'] = df_copy['confidence_score'].apply(lambda c: f"{int(round(float(c) * 100))}%")
+
     # Sort original complete dataset first
     sorted_df = df_copy.sort_values(by=['risk_score', 'anomaly_score'], ascending=[False, False]).reset_index(drop=True)
     sorted_df['Rank'] = sorted_df.index + 1
@@ -139,7 +148,7 @@ def generate_ranked_alerts(
         filtered = sorted_df.copy()
 
     alert_columns = [
-        'Rank', 'txid', 'risk_score', 'risk_level', 'anomaly_score', 'correlation_confidence_pct',
+        'Rank', 'txid', 'risk_score', 'risk_level', 'anomaly_score', 'confidence_score', 'correlation_confidence_pct',
         'src_ip', 'dst_ip', 'source_wallet', 'destination_wallet',
         'src_country', 'dst_country', 'src_asn', 'total_output_amount_btc', 'risk_reasons'
     ]

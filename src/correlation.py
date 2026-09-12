@@ -94,7 +94,7 @@ class EntityCorrelator:
             "countries": countries,
             "asns": asns,
             "avg_correlation_confidence": round(avg_conf, 4),
-            "correlation_descriptor": f"Probabilistic IP-wallet association ({int(round(avg_conf*100))}% confidence)"
+            "correlation_descriptor": f"Network observation associated with transaction/wallet activity ({int(round(avg_conf*100))}% confidence)"
         }
 
     def get_wallet_correlations(self, wallet: str) -> Dict[str, Any]:

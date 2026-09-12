@@ -16,9 +16,9 @@ import streamlit as st
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from src.preprocessing import load_dataset, preprocess_data
-from src.ingestion.network_ingestion import parse_and_validate_network_csv
-from src.ingestion.blockchain_ingestion import parse_and_validate_blockchain_csv
-from src.geoip_enrichment import enrich_transactions_with_geoip
+from src.ingestion.network_ingestion import parse_and_validate_network_data, parse_and_validate_network_csv
+from src.ingestion.blockchain_ingestion import parse_and_validate_blockchain_data, parse_and_validate_blockchain_csv
+from src.geoip_enrichment import enrich_transactions_with_geoip, get_geoip_status
 from src.correlation import EntityCorrelator, DualLayerCorrelator, calculate_record_correlation_confidence
 from src.temporal.temporal_analysis import analyze_temporal_patterns
 from src.behavioural.behavioural_fingerprinting import extract_behavioural_evidence_scores
@@ -31,6 +31,8 @@ from src.explainability.shap_explainer import BitcoinSHAPExplainer
 from src.evaluation import evaluate_prototype_predictions
 from src.database.db_manager import DatabaseManager
 from src.reporting import ReportGenerator
+from src.investigation import InvestigationPathReconstructor, EvidenceTimelineBuilder, AlertCaseGrouper
+
 # -----------------------------------------------------------------------------
 # PAGE CONFIGURATION & STYLING
 # -----------------------------------------------------------------------------
@@ -103,8 +105,8 @@ def run_investigation_pipeline(net_source, chain_source):
     Returns complete context dictionary.
     """
     # 1. Independent Ingestion & Validation
-    net_df, net_warnings = parse_and_validate_network_csv(net_source)
-    chain_df, chain_warnings = parse_and_validate_blockchain_csv(chain_source)
+    net_df, net_warnings = parse_and_validate_network_data(net_source)
+    chain_df, chain_warnings = parse_and_validate_blockchain_data(chain_source)
 
     # 2. Independent Correlation Layer (No blind row concatenation or index matching)
     dual_correlator = DualLayerCorrelator(net_df, chain_df)
@@ -215,6 +217,11 @@ def run_investigation_pipeline(net_source, chain_source):
         total_btc=('total_output_amount_btc', 'sum')
     ).reset_index().sort_values(by=['max_risk', 'avg_risk'], ascending=False).head(5)
 
+    # 10. Investigation Cases, Path Reconstruction, & Evidence Timeline Engines
+    case_grouper = AlertCaseGrouper(scored_df, graph_engine)
+    path_reconstructor = InvestigationPathReconstructor(scored_df, graph_engine)
+    timeline_builder = EvidenceTimelineBuilder(scored_df)
+
     return {
         "scored_df": scored_df,
         "feat_df": feat_df,
@@ -228,6 +235,9 @@ def run_investigation_pipeline(net_source, chain_source):
         "graph_summary": graph_summary,
         "high_degree_entities": high_degree_entities,
         "ranked_alerts_full": ranked_alerts_full,
+        "case_grouper": case_grouper,
+        "path_reconstructor": path_reconstructor,
+        "timeline_builder": timeline_builder,
         "kpis": {
             "total_tx": total_tx,
             "normal_tx": normal_tx,
@@ -243,6 +253,7 @@ def run_investigation_pipeline(net_source, chain_source):
             "top_wallets": top_wallets
         }
     }
+
 
 
 # Initialize Session State Context if not present
@@ -269,6 +280,10 @@ graph_engine = ctx["graph_engine"]
 shap_explainer = ctx["shap_explainer"]
 db_manager = ctx["db_manager"]
 kpis = ctx["kpis"]
+case_grouper = ctx.get("case_grouper", AlertCaseGrouper(scored_df, graph_engine))
+path_reconstructor = ctx.get("path_reconstructor", InvestigationPathReconstructor(scored_df, graph_engine))
+timeline_builder = ctx.get("timeline_builder", EvidenceTimelineBuilder(scored_df))
+
 
 # Initialize report ID map and pre-compute feature statistics for report generation
 if "report_id_map" not in st.session_state:
@@ -306,11 +321,13 @@ if db_manager.is_connected:
 else:
     st.sidebar.warning("Database: Disconnected")
 
-geoip_stat = scored_df['geoip_lookup_status'].iloc[0] if 'geoip_lookup_status' in scored_df.columns else 'synthetic_fallback'
-if geoip_stat == "geoip_resolved":
-    st.sidebar.info("GeoIP: MaxMind MMDB")
-else:
-    st.sidebar.warning("GeoIP: Synthetic Fallback")
+geoip_info = get_geoip_status()
+st.sidebar.markdown(f"""
+**GeoIP Status:**
+- Country DB: `{geoip_info['country_status']}`
+- ASN DB: `{geoip_info['asn_status']}`
+- Mode: `{geoip_info['mode']}`
+""")
 st.sidebar.caption("Defensive Cybersecurity Prototype")
 
 
@@ -359,7 +376,7 @@ with tabs[0]:
         st.subheader("1. NETWORK-LAYER DATA")
         st.caption("Bitcoin P2P network telemetry, IP addresses, ports, and packet traffic.")
         
-        net_upload = st.file_uploader("Upload Network CSV", type=["csv"], key="uploader_network_file")
+        net_upload = st.file_uploader("Upload Network File (CSV, JSON, XML)", type=["csv", "json", "xml"], key="uploader_network_file")
         
         if net_upload is not None:
             st.session_state["net_file_data"] = net_upload
@@ -369,12 +386,13 @@ with tabs[0]:
         
         try:
             if isinstance(net_source, str):
-                net_preview_df = pd.read_csv(net_source)
+                net_preview_df, _ = parse_and_validate_network_data(net_source)
                 net_filename = os.path.basename(net_source)
             else:
-                net_preview_df = pd.read_csv(net_source)
-                net_filename = net_source.name
-                net_source.seek(0)
+                net_preview_df, _ = parse_and_validate_network_data(net_source)
+                net_filename = getattr(net_source, 'name', 'Uploaded_Network_File')
+                if hasattr(net_source, 'seek'):
+                    net_source.seek(0)
             
             st.success(f"✓ Network dataset loaded\n\n**Filename:** `{net_filename}`  \n**Records:** `{len(net_preview_df):,} rows` × `{len(net_preview_df.columns)} columns`")
             
@@ -390,7 +408,7 @@ with tabs[0]:
         st.subheader("2. BLOCKCHAIN-LAYER DATA")
         st.caption("Bitcoin transaction ledgers, UTXOs, miner fees, and wallet addresses.")
         
-        chain_upload = st.file_uploader("Upload Blockchain CSV", type=["csv"], key="uploader_blockchain_file")
+        chain_upload = st.file_uploader("Upload Blockchain File (CSV, JSON, XML)", type=["csv", "json", "xml"], key="uploader_blockchain_file")
         
         if chain_upload is not None:
             st.session_state["chain_file_data"] = chain_upload
@@ -400,12 +418,13 @@ with tabs[0]:
         
         try:
             if isinstance(chain_source, str):
-                chain_preview_df = pd.read_csv(chain_source)
+                chain_preview_df, _ = parse_and_validate_blockchain_data(chain_source)
                 chain_filename = os.path.basename(chain_source)
             else:
-                chain_preview_df = pd.read_csv(chain_source)
-                chain_filename = chain_source.name
-                chain_source.seek(0)
+                chain_preview_df, _ = parse_and_validate_blockchain_data(chain_source)
+                chain_filename = getattr(chain_source, 'name', 'Uploaded_Blockchain_File')
+                if hasattr(chain_source, 'seek'):
+                    chain_source.seek(0)
                 
             st.success(f"✓ Blockchain dataset loaded\n\n**Filename:** `{chain_filename}`  \n**Records:** `{len(chain_preview_df):,} rows` × `{len(chain_preview_df.columns)} columns`")
             
@@ -424,11 +443,11 @@ with tabs[0]:
     with btn_col1:
         if st.button("🔍 VALIDATE DATASETS", width='stretch', type="secondary"):
             if net_source is None or chain_source is None:
-                st.error("Both Network CSV and Blockchain CSV must be uploaded before validating.")
+                st.error("Both Network and Blockchain datasets must be provided before validating.")
             else:
                 with st.spinner("Validating Network and Blockchain schemas independently..."):
-                    net_df, net_warn = parse_and_validate_network_csv(net_source)
-                    chain_df, chain_warn = parse_and_validate_blockchain_csv(chain_source)
+                    net_df, net_warn = parse_and_validate_network_data(net_source)
+                    chain_df, chain_warn = parse_and_validate_blockchain_data(chain_source)
                     
                     st.session_state["datasets_validated"] = True
                     st.session_state["validation_report"] = {
@@ -662,6 +681,104 @@ with tabs[2]:
             }
             st.table(pd.DataFrame(list(chain_data.items()), columns=["Attribute", "Value"]))
 
+        st.markdown("---")
+
+        # ---------------------------------------------------------------------
+        # FEATURE 1: INVESTIGATION PATH RECONSTRUCTION
+        # ---------------------------------------------------------------------
+        st.subheader("🧭 Investigation Path Reconstruction")
+        st.caption(
+            "Multi-hop forensic trace connecting network observation vantage points, on-chain transactions, "
+            "and wallet fund flows. Strict non-attribution semantics applied."
+        )
+
+        p_col1, p_col2 = st.columns([1, 3])
+        with p_col1:
+            path_depth = st.slider("Traversal Depth (Hops)", min_value=1, max_value=5, value=3, key="tab2_path_depth")
+            max_paths_sel = st.slider("Max Paths to Trace", min_value=1, max_value=5, value=3, key="tab2_max_paths")
+
+        reconstructed_paths = path_reconstructor.reconstruct_path(
+            selected_txid,
+            max_depth=path_depth,
+            max_paths=max_paths_sel
+        )
+
+        with p_col2:
+            if not reconstructed_paths:
+                st.info(f"No connected multi-hop paths found for transaction {selected_txid} at depth {path_depth}.")
+            else:
+                for path in reconstructed_paths:
+                    st.markdown(f"""
+                    <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-weight: 700; color: #f8fafc; font-size: 0.95rem;">Path #{path['path_id']} ({path['total_hops']} Sequential Nodes)</span>
+                            <span style="background: #3b82f6; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">Priority Score: {path['priority_score']:.1f}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    steps = path['steps']
+                    cols = st.columns(len(steps))
+                    entity_colors = {
+                        "IP": "#06b6d4",
+                        "TXID": "#f97316",
+                        "WALLET": "#10b981",
+                        "RELATED_TXID": "#a855f7",
+                        "CONNECTED_WALLET": "#ec4899"
+                    }
+
+                    for idx, step in enumerate(steps):
+                        color = entity_colors.get(step["entity_type"], "#64748b")
+                        with cols[idx]:
+                            st.markdown(f"""
+                            <div style="background: #1e293b; border-top: 4px solid {color}; border-radius: 6px; padding: 8px 10px; height: 100%; min-height: 120px;">
+                                <div style="font-size: 0.7rem; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Step {step['step']} • {step['entity_type']}</div>
+                                <div style="font-size: 0.85rem; font-weight: 700; color: #f1f5f9; word-break: break-all; margin: 4px 0;">{step['entity_id']}</div>
+                                <div style="font-size: 0.75rem; color: {color}; font-weight: 500;">{step['label']}</div>
+                                <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px; line-height: 1.2;">{step['relationship']}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ---------------------------------------------------------------------
+        # FEATURE 2: EVIDENCE TIMELINE / ACTIVITY SEQUENCE
+        # ---------------------------------------------------------------------
+        st.subheader("⏳ Forensic Evidence Timeline")
+        st.caption(
+            "Chronological activity sequence reconstructed from network packet captures, on-chain block confirmations, "
+            "wallet fund movements, and AI anomaly detection signals using actual dataset timestamps."
+        )
+
+        timeline_events = timeline_builder.build_transaction_timeline(selected_txid)
+
+        if not timeline_events:
+            st.info(f"No temporal events recorded for transaction {selected_txid}.")
+        else:
+            for ev in timeline_events:
+                sev_color = {
+                    "CRITICAL": "#ef4444",
+                    "HIGH": "#f97316",
+                    "WARNING": "#eab308",
+                    "INFO": "#38bdf8"
+                }.get(ev.get("severity", "INFO"), "#38bdf8")
+
+                st.markdown(f"""
+                <div style="display: flex; gap: 14px; margin-bottom: 10px; align-items: flex-start;">
+                    <div style="min-width: 155px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 6px 10px; text-align: center;">
+                        <span style="font-family: monospace; font-size: 0.8rem; color: #94a3b8; font-weight: 600;">{ev['timestamp']}</span>
+                    </div>
+                    <div style="flex-grow: 1; background: #1e293b; border-left: 4px solid {sev_color}; border-radius: 6px; padding: 8px 14px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                            <span style="font-weight: 700; color: #f8fafc; font-size: 0.9rem;">{ev['badge']}</span>
+                            <span style="font-family: monospace; font-size: 0.8rem; color: #cbd5e1; background: #0f172a; padding: 2px 6px; border-radius: 4px;">{ev['entity']}</span>
+                        </div>
+                        <div style="font-size: 0.8rem; color: #94a3b8; line-height: 1.35;">{ev['description']}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+
 
 # =============================================================================
 # TAB 3: IP–TXID–WALLET CORRELATION GRAPH
@@ -816,78 +933,253 @@ with tabs[5]:
 # TAB 6: RANKED ALERTS (FIXED STRICT EXACT RISK FILTERING)
 # =============================================================================
 with tabs[6]:
-    st.title("🚨 Prioritized Investigation Alert Feed")
-    st.caption("Ranked triage queue ordering suspicious transactions by Multi-Layer Unified Risk Score (0–100).")
+    st.title("🚨 Prioritized Alerts & Investigation Cases")
+    st.caption("Consolidated triage queue: Investigate deduplicated high-priority cases or inspect individual ranked alert traffic.")
 
-    r_col1, r_col2 = st.columns([1, 2])
-    with r_col1:
-        selected_risk_level = st.selectbox(
-            "Filter Risk Tier (Exact Match)",
-            ["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW"],
-            index=0,
-            key="tab6_risk_filter_exact"
+    case_tab, alert_feed_tab = st.tabs(["🗂️ Prioritized Investigation Cases", "📑 Full Alert Feed"])
+
+    # -------------------------------------------------------------------------
+    # SUB-TAB 1: PRIORITIZED INVESTIGATION CASES (DEDUPLICATION & GROUPING)
+    # -------------------------------------------------------------------------
+    with case_tab:
+        st.subheader("Investigation Cases (Alert Deduplication & Correlation)")
+        st.caption(
+            "Consolidates strongly connected anomalous alerts into deduplicated cases using real relationships: "
+            "shared source/destination wallets, sequential fund flows, temporal network correlation (≤2h), and DBSCAN behavioural clusters."
         )
-    with r_col2:
-        search_filter = st.text_input("Filter Alerts (by TXID, IP, or Wallet)", placeholder="Enter keyword...", key="tab6_search").strip()
 
-    # ALWAYS filter from ORIGINAL COMPLETE dataset (ctx['scored_df']) to avoid stale dataframe state
-    complete_scored_df = ctx["scored_df"]
-    
-    # Generate ranked alerts feed filtered strictly on exact risk_level
-    ranked_alerts = generate_ranked_alerts(complete_scored_df, selected_risk_level)
+        all_cases = case_grouper.get_cases(min_transactions=1)
+        multi_cases = [c for c in all_cases if c["transaction_count"] > 1]
+        crit_cases = [c for c in all_cases if c["severity"] == "CRITICAL"]
+        total_case_btc = sum(c["total_btc_volume"] for c in all_cases)
 
-    if search_filter:
-        mask = (
-            ranked_alerts['txid'].str.contains(search_filter, case=False, na=False) |
-            ranked_alerts['src_ip'].str.contains(search_filter, na=False) |
-            ranked_alerts['source_wallet'].str.contains(search_filter, case=False, na=False) |
-            ranked_alerts['destination_wallet'].str.contains(search_filter, case=False, na=False)
-        )
-        ranked_alerts = ranked_alerts[mask]
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        mc1.metric("Total Cases Discovered", f"{len(all_cases)}")
+        mc2.metric("Critical Severity Cases", f"{len(crit_cases)}")
+        mc3.metric("Multi-Transaction Incidents", f"{len(multi_cases)}")
+        mc4.metric("Total Case BTC Volume", f"{total_case_btc:.4f} BTC")
 
-    st.write(f"Displaying **{len(ranked_alerts):,}** prioritized alerts for risk tier **{selected_risk_level}** (Showing top 100 below).")
-
-    # ---- Export Buttons: CSV + PDF side by side ----
-    csv_data = ranked_alerts.to_csv(index=False).encode('utf-8')
-
-    btn_col1, btn_col2, btn_spacer = st.columns([1, 1, 2])
-    with btn_col1:
-        st.download_button(
-            label="📥 Export Alerts to CSV",
-            data=csv_data,
-            file_name="Bitcoin_Prioritized_Alerts.csv",
-            mime="text/csv",
-        )
-    with btn_col2:
-        # PDF uses the COMPLETE anomaly set, ignoring the current risk filter
-        if "report_id_map" not in st.session_state:
-            st.session_state["report_id_map"] = {}
-        try:
-            final_pdf_bytes = ReportGenerator.generate_batch_report_pdf(
-                ctx["scored_df"],
-                st.session_state["feature_stats"],
-                max_pages=None,
+        c_filter_col1, c_filter_col2 = st.columns([1, 2])
+        with c_filter_col1:
+            case_scope = st.radio(
+                "Case Scope Filter",
+                ["All Cases (Including Isolated Anomalies)", "Multi-Transaction Cases Only (≥2 TXs)"],
+                key="tab6_case_scope"
             )
+        min_tx_filter = 2 if "Multi-Transaction" in case_scope else 1
+        filtered_cases = case_grouper.get_cases(min_transactions=min_tx_filter)
+
+        if not filtered_cases:
+            st.info("No cases found matching the selected scope.")
+        else:
+            # Summary Table
+            case_summary_df = pd.DataFrame([
+                {
+                    "Case ID": c["case_id"],
+                    "Severity": c["severity"],
+                    "Title": c["title"],
+                    "Max Risk": int(c["max_risk_score"]),
+                    "Transactions": c["transaction_count"],
+                    "Wallets": len(c["wallets"]),
+                    "Network IPs": len(c["ips"]),
+                    "Total BTC": f"{c['total_btc_volume']:.4f}",
+                    "Primary TXID": c["primary_txid"]
+                }
+                for c in filtered_cases
+            ])
+
+            st.dataframe(
+                case_summary_df,
+                width='stretch',
+                hide_index=True,
+                column_config={
+                    "Max Risk": st.column_config.ProgressColumn("Max Risk", help="Highest Risk Score in Case", format="%d", min_value=0, max_value=100),
+                    "Severity": st.column_config.TextColumn("Severity"),
+                    "Total BTC": st.column_config.TextColumn("Total BTC Volume")
+                }
+            )
+
+            st.markdown("---")
+            st.subheader("🔍 Case Drill-Down & Forensic Reconstruction")
+
+            case_options = [
+                f"{c['case_id']} — [{c['severity']}] {c['title']} ({c['transaction_count']} TXs, {len(c['wallets'])} Wallets)"
+                for c in filtered_cases
+            ]
+            selected_case_idx = st.selectbox("Select Case to Inspect", range(len(case_options)), format_func=lambda i: case_options[i])
+            active_case = filtered_cases[selected_case_idx]
+
+            sev_color_case = {
+                "CRITICAL": "#ef4444",
+                "HIGH": "#f97316",
+                "MEDIUM": "#eab308",
+                "LOW": "#22c55e"
+            }.get(active_case["severity"], "#3b82f6")
+
+            st.markdown(f"""
+            <div style="background: #1e293b; border-left: 6px solid {sev_color_case}; padding: 14px 18px; border-radius: 8px; margin: 12px 0 16px 0;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="font-size: 1.2rem; font-weight: 700; color: #f8fafc;">{active_case['case_id']}: {active_case['title']}</span>
+                        <span style="background-color: {sev_color_case}; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; margin-left: 10px; font-size: 0.85rem;">
+                            {active_case['severity']} SEVERITY
+                        </span>
+                    </div>
+                    <div>
+                        <span style="font-size: 0.95rem; color: #94a3b8; margin-right: 15px;">Transactions: <strong style="color: #f8fafc;">{active_case['transaction_count']}</strong></span>
+                        <span style="font-size: 0.95rem; color: #94a3b8; margin-right: 15px;">Wallets: <strong style="color: #10b981;">{len(active_case['wallets'])}</strong></span>
+                        <span style="font-size: 0.95rem; color: #94a3b8;">Max Risk: <strong style="color: {sev_color_case};">{int(active_case['max_risk_score'])}/100</strong></span>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Grouping Evidence Rationale
+            st.markdown("**📌 Grouping Evidence & Correlation Rationale:**")
+            for reason in active_case["grouping_reasons"]:
+                st.markdown(f"- {reason}")
+
+            # Grouped Transactions Table
+            st.markdown("**📑 Member Transactions in Case:**")
+            case_txs_df = pd.DataFrame(active_case["transactions"])[[
+                'txid', 'risk_score', 'risk_level', 'anomaly_score', 'total_output_amount_btc',
+                'src_ip', 'source_wallet', 'destination_wallet', 'timestamp'
+            ]]
+            st.dataframe(
+                case_txs_df,
+                width='stretch',
+                hide_index=True,
+                column_config={
+                    "risk_score": st.column_config.ProgressColumn("Risk Score", format="%d", min_value=0, max_value=100),
+                    "anomaly_score": st.column_config.NumberColumn("AI Score", format="%.3f"),
+                    "total_output_amount_btc": st.column_config.NumberColumn("BTC Amount", format="%.4f")
+                }
+            )
+
+            # Case Path & Case Timeline sub-expanders
+            with st.expander("🧭 Case Primary Investigation Path", expanded=True):
+                case_paths = path_reconstructor.reconstruct_path(active_case["primary_txid"], max_depth=3, max_paths=2)
+                if case_paths:
+                    for cp in case_paths:
+                        st.caption(f"Path #{cp['path_id']} (Priority Score: {cp['priority_score']:.1f})")
+                        c_steps = cp['steps']
+                        c_cols = st.columns(len(c_steps))
+                        for s_idx, step in enumerate(c_steps):
+                            c_color = {
+                                "IP": "#06b6d4",
+                                "TXID": "#f97316",
+                                "WALLET": "#10b981",
+                                "RELATED_TXID": "#a855f7",
+                                "CONNECTED_WALLET": "#ec4899"
+                            }.get(step["entity_type"], "#64748b")
+                            with c_cols[s_idx]:
+                                st.markdown(f"""
+                                <div style="background: #0f172a; border-top: 3px solid {c_color}; border-radius: 4px; padding: 6px 8px; min-height: 100px;">
+                                    <div style="font-size: 0.65rem; color: #94a3b8; font-weight: bold;">{step['entity_type']}</div>
+                                    <div style="font-size: 0.8rem; font-weight: bold; color: #f1f5f9; word-break: break-all;">{step['entity_id']}</div>
+                                    <div style="font-size: 0.7rem; color: {c_color};">{step['label']}</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+
+            with st.expander("⏳ Case Consolidated Evidence Timeline", expanded=True):
+                case_timeline = timeline_builder.build_case_timeline(active_case["txids"])
+                for ev in case_timeline[:15]:  # Display up to 15 key events
+                    ev_color = {
+                        "CRITICAL": "#ef4444",
+                        "HIGH": "#f97316",
+                        "WARNING": "#eab308",
+                        "INFO": "#38bdf8"
+                    }.get(ev.get("severity", "INFO"), "#38bdf8")
+
+                    st.markdown(f"""
+                    <div style="display: flex; gap: 12px; margin-bottom: 8px; align-items: flex-start;">
+                        <div style="min-width: 145px; background: #0f172a; border: 1px solid #334155; border-radius: 4px; padding: 4px 8px; text-align: center;">
+                            <span style="font-family: monospace; font-size: 0.75rem; color: #94a3b8;">{ev['timestamp']}</span>
+                        </div>
+                        <div style="flex-grow: 1; background: #0f172a; border-left: 3px solid {ev_color}; border-radius: 4px; padding: 6px 12px;">
+                            <span style="font-weight: 700; color: #f8fafc; font-size: 0.85rem;">{ev['badge']}</span>
+                            <span style="font-family: monospace; font-size: 0.75rem; color: #94a3b8; margin-left: 8px;">{ev['entity']}</span>
+                            <div style="font-size: 0.75rem; color: #cbd5e1; margin-top: 2px;">{ev['description']}</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+    # -------------------------------------------------------------------------
+    # SUB-TAB 2: FULL ALERT FEED (INDIVIDUAL RANKED TRIAGE)
+    # -------------------------------------------------------------------------
+    with alert_feed_tab:
+        r_col1, r_col2 = st.columns([1, 2])
+        with r_col1:
+            selected_risk_level = st.selectbox(
+                "Filter Risk Tier (Exact Match)",
+                ["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW"],
+                index=0,
+                key="tab6_risk_filter_exact"
+            )
+        with r_col2:
+            search_filter = st.text_input("Filter Alerts (by TXID, IP, or Wallet)", placeholder="Enter keyword...", key="tab6_search").strip()
+
+        # ALWAYS filter from ORIGINAL COMPLETE dataset (ctx['scored_df']) to avoid stale dataframe state
+        complete_scored_df = ctx["scored_df"]
+        
+        # Generate ranked alerts feed filtered strictly on exact risk_level
+        ranked_alerts = generate_ranked_alerts(complete_scored_df, selected_risk_level)
+
+        if search_filter:
+            mask = (
+                ranked_alerts['txid'].str.contains(search_filter, case=False, na=False) |
+                ranked_alerts['src_ip'].str.contains(search_filter, na=False) |
+                ranked_alerts['source_wallet'].str.contains(search_filter, case=False, na=False) |
+                ranked_alerts['destination_wallet'].str.contains(search_filter, case=False, na=False)
+            )
+            ranked_alerts = ranked_alerts[mask]
+
+        st.write(f"Displaying **{len(ranked_alerts):,}** prioritized alerts for risk tier **{selected_risk_level}** (Showing top 100 below).")
+
+        # ---- Export Buttons: CSV + PDF side by side ----
+        csv_data = ranked_alerts.to_csv(index=False).encode('utf-8')
+
+        btn_col1, btn_col2, btn_spacer = st.columns([1, 1, 2])
+        with btn_col1:
             st.download_button(
-                label="📄 Export Security Reports to PDF",
-                data=final_pdf_bytes,
-                file_name="Bitcoin_Security_Threat_Reports.pdf",
-                mime="application/pdf",
+                label="📥 Export Alerts to CSV",
+                data=csv_data,
+                file_name="Bitcoin_Prioritized_Alerts.csv",
+                mime="text/csv",
             )
-        except ImportError as e:
-            st.error(f"PDF generation unavailable: {e}")
+        with btn_col2:
+            # PDF uses the COMPLETE anomaly set, ignoring the current risk filter
+            if "report_id_map" not in st.session_state:
+                st.session_state["report_id_map"] = {}
+            try:
+                final_pdf_bytes = ReportGenerator.generate_batch_report_pdf(
+                    ctx["scored_df"],
+                    st.session_state["feature_stats"],
+                    max_pages=None,
+                )
+                st.download_button(
+                    label="📄 Export Security Reports to PDF",
+                    data=final_pdf_bytes,
+                    file_name="Bitcoin_Security_Threat_Reports.pdf",
+                    mime="application/pdf",
+                )
+            except ImportError as e:
+                st.error(f"PDF generation unavailable: {e}")
 
-    st.dataframe(
-        ranked_alerts.head(100),
-        width='stretch',
-        hide_index=True,
-        column_config={
-            "risk_score": st.column_config.ProgressColumn("Risk Score", help="Composite Risk (0-100)", format="%d", min_value=0, max_value=100),
-            "risk_level": st.column_config.TextColumn("Risk Level"),
-            "anomaly_score": st.column_config.NumberColumn("AI Score", format="%.3f"),
-            "total_output_amount_btc": st.column_config.NumberColumn("BTC Amount", format="%.4f")
-        }
-    )
+        st.dataframe(
+            ranked_alerts.head(100),
+            width='stretch',
+            hide_index=True,
+            column_config={
+                "risk_score": st.column_config.ProgressColumn("Risk Score", help="Composite Risk (0-100)", format="%d", min_value=0, max_value=100),
+                "risk_level": st.column_config.TextColumn("Risk Level"),
+                "anomaly_score": st.column_config.NumberColumn("AI Score", format="%.3f"),
+                "confidence_score": st.column_config.ProgressColumn("Confidence", help="Correlation Confidence (0.0-1.0)", format="%.2f", min_value=0.0, max_value=1.0),
+                "correlation_confidence_pct": st.column_config.TextColumn("Confidence %"),
+                "total_output_amount_btc": st.column_config.NumberColumn("BTC Amount", format="%.4f")
+            }
+        )
+
 
 
 # =============================================================================

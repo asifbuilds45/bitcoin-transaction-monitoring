@@ -181,5 +181,5 @@ class DualLayerCorrelator:
             "transaction_count": len(txids),
             "total_btc_volume": round(btc_vol, 4),
             "avg_correlation_confidence": round(avg_conf, 4),
-            "correlation_descriptor": f"Probabilistic IP-wallet association with {int(round(avg_conf*100))}% mean confidence"
+            "correlation_descriptor": f"Network observation associated with transaction/wallet activity ({int(round(avg_conf*100))}% mean confidence)"
         }

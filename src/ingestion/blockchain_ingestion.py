@@ -1,8 +1,7 @@
-"""
-Blockchain Data Ingestion & Preprocessing Module
-NTRO Problem Statement 26146: AI-Powered Monitoring & Analysis of Bitcoin Transaction Traffic
-"""
-
+import io
+import os
+import json
+import xml.etree.ElementTree as ET
 import pandas as pd
 import numpy as np
 from typing import Tuple, List, Dict, Any, Union
@@ -10,6 +9,66 @@ from typing import Tuple, List, Dict, Any, Union
 REQUIRED_BLOCKCHAIN_FIELDS = [
     'txid', 'source_wallet', 'destination_wallet'
 ]
+
+
+def _parse_xml_to_dataframe(source: Any) -> pd.DataFrame:
+    """Parse XML string, buffer, or file path into a pandas DataFrame."""
+    try:
+        return pd.read_xml(source)
+    except Exception:
+        pass
+
+    if isinstance(source, str) and os.path.exists(source):
+        tree = ET.parse(source)
+        root = tree.getroot()
+    elif isinstance(source, (str, bytes)):
+        root = ET.fromstring(source)
+    elif hasattr(source, 'read'):
+        if hasattr(source, 'seek'):
+            source.seek(0)
+        content = source.read()
+        root = ET.fromstring(content)
+    else:
+        raise ValueError("Unsupported XML source")
+
+    records = []
+    for child in root:
+        rec = {}
+        for sub in child:
+            rec[sub.tag] = sub.text.strip() if sub.text else ""
+        if rec:
+            records.append(rec)
+    if not records:
+        rec = {c.tag: (c.text.strip() if c.text else "") for c in root}
+        if rec:
+            records.append(rec)
+    return pd.DataFrame(records)
+
+
+def _load_data_source(data_source: Any) -> pd.DataFrame:
+    """Load raw DataFrame from CSV, JSON, or XML format."""
+    if isinstance(data_source, pd.DataFrame):
+        return data_source.copy(deep=True)
+
+    if isinstance(data_source, str):
+        lower_path = data_source.lower()
+        if lower_path.endswith('.json'):
+            return pd.read_json(data_source)
+        elif lower_path.endswith('.xml'):
+            return _parse_xml_to_dataframe(data_source)
+        else:
+            return pd.read_csv(data_source)
+
+    name = getattr(data_source, 'name', '').lower()
+    if hasattr(data_source, 'seek'):
+        data_source.seek(0)
+
+    if name.endswith('.json'):
+        return pd.read_json(data_source)
+    elif name.endswith('.xml'):
+        return _parse_xml_to_dataframe(data_source)
+    else:
+        return pd.read_csv(data_source)
 
 
 def parse_pipe_list(value: Any) -> List[str]:
@@ -32,24 +91,29 @@ def parse_pipe_float_list(value: Any) -> List[float]:
     return res
 
 
-def parse_and_validate_blockchain_csv(
-    data_source: Union[str, pd.DataFrame]
+def parse_and_validate_blockchain_data(
+    data_source: Any
 ) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
     """
-    Ingest, validate, and normalize Blockchain-Layer CSV data.
+    Ingest, validate, and normalize Blockchain-Layer data in CSV, JSON, or XML formats.
     
     Args:
-        data_source: Path to CSV file or existing DataFrame.
+        data_source: Path to file, UploadedFile, or existing DataFrame.
         
     Returns:
         Tuple of (clean_blockchain_df, list_of_validation_warnings)
     """
     warnings = []
 
-    if isinstance(data_source, str):
-        df_raw = pd.read_csv(data_source)
-    else:
-        df_raw = data_source.copy(deep=True)
+    try:
+        df_raw = _load_data_source(data_source)
+    except Exception as e:
+        warnings.append({
+            "level": "ERROR",
+            "type": "INGESTION_ERROR",
+            "message": f"Failed to parse blockchain data: {e}"
+        })
+        df_raw = pd.DataFrame(columns=REQUIRED_BLOCKCHAIN_FIELDS)
 
     df = df_raw.copy(deep=True)
 
@@ -140,3 +204,10 @@ def parse_and_validate_blockchain_csv(
         df['parsed_output_amounts'] = df['total_output_amount_btc'].apply(lambda a: [float(a)])
 
     return df, warnings
+
+
+def parse_and_validate_blockchain_csv(
+    data_source: Union[str, pd.DataFrame]
+) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+    """Backward compatible wrapper for parse_and_validate_blockchain_data."""
+    return parse_and_validate_blockchain_data(data_source)
