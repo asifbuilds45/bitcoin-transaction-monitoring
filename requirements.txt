@@ -5,3 +5,4 @@ networkx>=3.0
 plotly>=5.15.0
 streamlit>=1.25.0
 geoip2>=4.7.0
+reportlab>=4.0

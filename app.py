@@ -30,7 +30,7 @@ from src.risk_scoring import RiskScoringEngine, generate_ranked_alerts
 from src.explainability.shap_explainer import BitcoinSHAPExplainer
 from src.evaluation import evaluate_prototype_predictions
 from src.database.db_manager import DatabaseManager
-
+from src.reporting import ReportGenerator
 # -----------------------------------------------------------------------------
 # PAGE CONFIGURATION & STYLING
 # -----------------------------------------------------------------------------
@@ -252,10 +252,13 @@ if "context" not in st.session_state:
     if os.path.exists(net_default) and os.path.exists(chain_default):
         st.session_state["context"] = run_investigation_pipeline(net_default, chain_default)
         st.session_state["datasets_validated"] = True
+        st.session_state["feature_stats"] = ReportGenerator.compute_dataset_statistics(st.session_state["context"]["scored_df"])
     else:
         raw_df = load_dataset()
         st.session_state["context"] = run_investigation_pipeline(raw_df, raw_df)
         st.session_state["datasets_validated"] = True
+        st.session_state["feature_stats"] = ReportGenerator.compute_dataset_statistics(st.session_state["context"]["scored_df"])
+
 
 ctx = st.session_state["context"]
 scored_df = ctx["scored_df"]
@@ -266,6 +269,13 @@ graph_engine = ctx["graph_engine"]
 shap_explainer = ctx["shap_explainer"]
 db_manager = ctx["db_manager"]
 kpis = ctx["kpis"]
+
+# Initialize report ID map and pre-compute feature statistics for report generation
+if "report_id_map" not in st.session_state:
+    st.session_state["report_id_map"] = {}
+if "feature_stats" not in st.session_state:
+    st.session_state["feature_stats"] = ReportGenerator.compute_dataset_statistics(st.session_state["context"]["scored_df"])
+
 
 
 # -----------------------------------------------------------------------------
@@ -331,7 +341,7 @@ with tabs[0]:
     with col_def1:
         st.info("ℹ️ **Default Option:** You can upload custom CSV files below or click to load the preloaded 10,000-record synthetic datasets.")
     with col_def2:
-        if st.button("📂 Load Default Datasets", use_container_width=True):
+        if st.button("📂 Load Default Datasets", width='stretch'):
             net_default = os.path.join("data", "network_traffic_dataset.csv")
             chain_default = os.path.join("data", "blockchain_transactions_dataset.csv")
             if os.path.exists(net_default) and os.path.exists(chain_default):
@@ -369,7 +379,7 @@ with tabs[0]:
             st.success(f"✓ Network dataset loaded\n\n**Filename:** `{net_filename}`  \n**Records:** `{len(net_preview_df):,} rows` × `{len(net_preview_df.columns)} columns`")
             
             with st.expander("🔍 Preview Network Dataset", expanded=False):
-                st.dataframe(net_preview_df.head(5), use_container_width=True)
+                st.dataframe(net_preview_df.head(5), width='stretch')
                 st.caption(f"**Detected Columns:** {', '.join(net_preview_df.columns[:10])}...")
         except Exception as e:
             st.error(f"Error loading Network dataset: {e}")
@@ -400,7 +410,7 @@ with tabs[0]:
             st.success(f"✓ Blockchain dataset loaded\n\n**Filename:** `{chain_filename}`  \n**Records:** `{len(chain_preview_df):,} rows` × `{len(chain_preview_df.columns)} columns`")
             
             with st.expander("🔍 Preview Blockchain Dataset", expanded=False):
-                st.dataframe(chain_preview_df.head(5), use_container_width=True)
+                st.dataframe(chain_preview_df.head(5), width='stretch')
                 st.caption(f"**Detected Columns:** {', '.join(chain_preview_df.columns[:10])}...")
         except Exception as e:
             st.error(f"Error loading Blockchain dataset: {e}")
@@ -412,7 +422,7 @@ with tabs[0]:
     btn_col1, btn_col2, _ = st.columns([1, 1, 2])
 
     with btn_col1:
-        if st.button("🔍 VALIDATE DATASETS", use_container_width=True, type="secondary"):
+        if st.button("🔍 VALIDATE DATASETS", width='stretch', type="secondary"):
             if net_source is None or chain_source is None:
                 st.error("Both Network CSV and Blockchain CSV must be uploaded before validating.")
             else:
@@ -431,7 +441,7 @@ with tabs[0]:
 
     with btn_col2:
         is_validated = st.session_state.get("datasets_validated", False)
-        if st.button("🚀 RUN INVESTIGATION", use_container_width=True, type="primary", disabled=not is_validated):
+        if st.button("🚀 RUN INVESTIGATION", width='stretch', type="primary", disabled=not is_validated):
             with st.spinner("Running Multi-Layer Correlation, Graph Engine, AI Models & Risk Scoring..."):
                 new_ctx = run_investigation_pipeline(net_source, chain_source)
                 st.session_state["context"] = new_ctx
@@ -478,7 +488,7 @@ with tabs[1]:
             hole=0.45
         )
         fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20), template="plotly_dark", height=320)
-        st.plotly_chart(fig_pie, use_container_width=True)
+        st.plotly_chart(fig_pie, width='stretch')
 
     with c2:
         st.subheader("Investigative Risk Severity Tiers (0–100)")
@@ -491,7 +501,7 @@ with tabs[1]:
             text_auto=True
         )
         fig_bar.update_layout(margin=dict(t=20, b=20, l=20, r=20), template="plotly_dark", height=320)
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_bar, width='stretch')
 
     # Row 2 Charts
     c3, c4 = st.columns(2)
@@ -506,7 +516,7 @@ with tabs[1]:
             color_discrete_map={'total_tx': '#38bdf8', 'high_risk': '#ef4444'}
         )
         fig_country.update_layout(margin=dict(t=20, b=20, l=20, r=20), template="plotly_dark", height=320)
-        st.plotly_chart(fig_country, use_container_width=True)
+        st.plotly_chart(fig_country, width='stretch')
 
     with c4:
         st.subheader("Temporal Transaction Velocity & Anomalies")
@@ -518,18 +528,18 @@ with tabs[1]:
             color_discrete_map={'total': '#38bdf8', 'anomalies': '#f43f5e'}
         )
         fig_time.update_layout(margin=dict(t=20, b=20, l=20, r=20), template="plotly_dark", height=320)
-        st.plotly_chart(fig_time, use_container_width=True)
+        st.plotly_chart(fig_time, width='stretch')
 
     # Top Suspicious Entities Table
     st.subheader("Top Suspicious Entities Requiring Review")
     col_t1, col_t2 = st.columns(2)
     with col_t1:
         st.caption("Top Suspicious Source IPs (by High/Critical Risk Count)")
-        st.dataframe(kpis['top_ips'], use_container_width=True, hide_index=True)
+        st.dataframe(kpis['top_ips'], width='stretch', hide_index=True)
 
     with col_t2:
         st.caption("Top Suspicious Source Wallets (by Risk Score)")
-        st.dataframe(kpis['top_wallets'], use_container_width=True, hide_index=True)
+        st.dataframe(kpis['top_wallets'], width='stretch', hide_index=True)
 
 
 # =============================================================================
@@ -610,7 +620,7 @@ with tabs[2]:
                     "SHAP Impact": item["shap_value"],
                     "Direction": item["direction"]
                 })
-            st.dataframe(pd.DataFrame(shap_data), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(shap_data), width='stretch', hide_index=True)
 
         st.markdown("---")
 
@@ -728,7 +738,7 @@ with tabs[3]:
                 fig_graph.add_trace(go.Scatter(x=node_x_w, y=node_y_w, mode='markers+text', textposition="top center", hoverinfo='text', text=[t.split('<br>')[0].replace('<b>Wallet:</b> ', '') for t in text_w], hovertext=text_w, marker=dict(size=16, color='#10b981', symbol='hexagon', line=dict(width=2, color='#ffffff')), name='Wallet'))
 
             fig_graph.update_layout(template="plotly_dark", showlegend=True, hovermode='closest', margin=dict(b=10, l=10, r=10, t=10), xaxis=dict(showgrid=False, zeroline=False, showticklabels=False), yaxis=dict(showgrid=False, zeroline=False, showticklabels=False), height=480)
-            st.plotly_chart(fig_graph, use_container_width=True)
+            st.plotly_chart(fig_graph, width='stretch')
 
 
 # =============================================================================
@@ -755,19 +765,19 @@ with tabs[4]:
         ip_deg_df = pd.DataFrame(high_deg['top_ips'])
         fig_ip_deg = px.bar(ip_deg_df, x='degree', y='entity', orientation='h', labels={'degree': 'Connections', 'entity': 'IP Address'}, color='degree', color_continuous_scale='tealgrn')
         fig_ip_deg.update_layout(template="plotly_dark", yaxis=dict(autorange="reversed"), height=320)
-        st.plotly_chart(fig_ip_deg, use_container_width=True)
+        st.plotly_chart(fig_ip_deg, width='stretch')
 
     with hd2:
         st.subheader("Top High-Degree Wallets (Financial Hubs)")
         w_deg_df = pd.DataFrame(high_deg['top_wallets'])
         fig_w_deg = px.bar(w_deg_df, x='degree', y='entity', orientation='h', labels={'degree': 'Connections', 'entity': 'Wallet ID'}, color='degree', color_continuous_scale='purples')
         fig_w_deg.update_layout(template="plotly_dark", yaxis=dict(autorange="reversed"), height=320)
-        st.plotly_chart(fig_w_deg, use_container_width=True)
+        st.plotly_chart(fig_w_deg, width='stretch')
 
     st.subheader("Discovered Louvain Graph Communities")
     comm_df = pd.DataFrame(graph_engine.community_stats)
     if not comm_df.empty:
-        st.dataframe(comm_df, use_container_width=True, hide_index=True)
+        st.dataframe(comm_df, width='stretch', hide_index=True)
 
 
 # =============================================================================
@@ -784,7 +794,7 @@ with tabs[5]:
         st.subheader("Isolation Forest Anomaly Score Distribution")
         fig_score_dist = px.histogram(anom_sample, x='anomaly_score', color='is_anomaly', nbins=40, labels={'anomaly_score': 'Normalized Anomaly Score', 'is_anomaly': 'AI Flagged'}, color_discrete_map={0: '#10b981', 1: '#f43f5e'})
         fig_score_dist.update_layout(template="plotly_dark", height=300)
-        st.plotly_chart(fig_score_dist, use_container_width=True)
+        st.plotly_chart(fig_score_dist, width='stretch')
 
     with col_m2:
         st.subheader("DBSCAN Behavioural Cluster Membership")
@@ -792,14 +802,14 @@ with tabs[5]:
         dbscan_counts.columns = ['Cluster ID', 'Count']
         fig_dbscan = px.bar(dbscan_counts, x='Cluster ID', y='Count', color='Cluster ID', text_auto=True)
         fig_dbscan.update_layout(template="plotly_dark", height=300)
-        st.plotly_chart(fig_dbscan, use_container_width=True)
+        st.plotly_chart(fig_dbscan, width='stretch')
 
     st.markdown("---")
     st.subheader("Feature Discrepancy Analysis (Normal vs Anomaly)")
     feature_to_compare = st.selectbox("Select Feature to Compare", ["transaction_frequency_24h", "avg_time_gap_min", "wallet_degree", "unique_ip_count", "packet_count", "bytes_transferred", "num_outputs"], key="tab5_feat")
     fig_feat_box = px.box(anom_sample, x='is_anomaly', y=feature_to_compare, color='is_anomaly', labels={'is_anomaly': 'Predicted Anomaly (0=Normal, 1=Anomaly)', feature_to_compare: feature_to_compare}, color_discrete_map={0: '#10b981', 1: '#f43f5e'})
     fig_feat_box.update_layout(template="plotly_dark", height=300)
-    st.plotly_chart(fig_feat_box, use_container_width=True)
+    st.plotly_chart(fig_feat_box, width='stretch')
 
 
 # =============================================================================
@@ -837,12 +847,39 @@ with tabs[6]:
 
     st.write(f"Displaying **{len(ranked_alerts):,}** prioritized alerts for risk tier **{selected_risk_level}** (Showing top 100 below).")
 
+    # ---- Export Buttons: CSV + PDF side by side ----
     csv_data = ranked_alerts.to_csv(index=False).encode('utf-8')
-    st.download_button(label="📥 Export Filtered Alerts to CSV", data=csv_data, file_name=f"bitcoin_alerts_{selected_risk_level.lower()}.csv", mime="text/csv")
+
+    btn_col1, btn_col2, btn_spacer = st.columns([1, 1, 2])
+    with btn_col1:
+        st.download_button(
+            label="📥 Export Alerts to CSV",
+            data=csv_data,
+            file_name="Bitcoin_Prioritized_Alerts.csv",
+            mime="text/csv",
+        )
+    with btn_col2:
+        # PDF uses the COMPLETE anomaly set, ignoring the current risk filter
+        if "report_id_map" not in st.session_state:
+            st.session_state["report_id_map"] = {}
+        try:
+            final_pdf_bytes = ReportGenerator.generate_batch_report_pdf(
+                ctx["scored_df"],
+                st.session_state["feature_stats"],
+                max_pages=None,
+            )
+            st.download_button(
+                label="📄 Export Security Reports to PDF",
+                data=final_pdf_bytes,
+                file_name="Bitcoin_Security_Threat_Reports.pdf",
+                mime="application/pdf",
+            )
+        except ImportError as e:
+            st.error(f"PDF generation unavailable: {e}")
 
     st.dataframe(
         ranked_alerts.head(100),
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         column_config={
             "risk_score": st.column_config.ProgressColumn("Risk Score", help="Composite Risk (0-100)", format="%d", min_value=0, max_value=100),
@@ -875,7 +912,7 @@ with tabs[7]:
         cm_matrix = [[cm_data['true_negatives'], cm_data['false_positives']], [cm_data['false_negatives'], cm_data['true_positives']]]
         fig_cm = px.imshow(cm_matrix, labels=dict(x="Predicted Class", y="Actual Ground Truth", color="Count"), x=["Normal (0)", "Anomaly (1)"], y=["Normal (0)", "Anomaly (1)"], text_auto=True, color_continuous_scale="Blues")
         fig_cm.update_layout(template="plotly_dark", margin=dict(t=20, b=20, l=20, r=20), height=320)
-        st.plotly_chart(fig_cm, use_container_width=True)
+        st.plotly_chart(fig_cm, width='stretch')
 
         st.caption(f"**TP:** {cm_data['true_positives']:,} | **TN:** {cm_data['true_negatives']:,} | **FP:** {cm_data['false_positives']:,} | **FN:** {cm_data['false_negatives']:,}")
 
@@ -884,7 +921,7 @@ with tabs[7]:
         scenario_df = eval_results['scenario_breakdown']
         fig_scenario = px.bar(scenario_df[scenario_df['Scenario'] != 'normal'], x='Detection Rate (%)', y='Scenario', orientation='h', color='Avg Risk Score', color_continuous_scale='Reds', text='Detection Rate (%)', labels={'Scenario': 'Anomaly Scenario'})
         fig_scenario.update_layout(template="plotly_dark", yaxis=dict(autorange="reversed"), height=320)
-        st.plotly_chart(fig_scenario, use_container_width=True)
+        st.plotly_chart(fig_scenario, width='stretch')
 
     st.subheader("Detailed Scenario Benchmark Table")
-    st.dataframe(scenario_df, use_container_width=True, hide_index=True)
+    st.dataframe(scenario_df, width='stretch', hide_index=True)
