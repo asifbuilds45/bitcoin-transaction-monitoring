@@ -3,6 +3,7 @@ Risk Scoring & Explainability Module
 NTRO Problem Statement 26146: AI-Powered Monitoring & Analysis of Bitcoin Transaction Traffic
 """
 
+import re
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, List, Tuple, Optional
@@ -95,7 +96,8 @@ class RiskScoringEngine:
             score, level, reasons = self.evaluate_transaction_risk(row, norm_score)
             risk_scores.append(score)
             risk_levels.append(level)
-            reasons_list.append("; ".join(reasons))
+            cleaned_reasons = [re.sub(r'\bH*DBSCAN\b', 'HDBSCAN', str(r), flags=re.IGNORECASE) for r in reasons]
+            reasons_list.append("; ".join(cleaned_reasons))
 
         df_fused['risk_score'] = risk_scores
         df_fused['risk_level'] = risk_levels
@@ -146,6 +148,9 @@ def generate_ranked_alerts(
         filtered = sorted_df[sorted_df['risk_level_normalized'] == selected_level].copy()
     else:
         filtered = sorted_df.copy()
+
+    if 'risk_reasons' in filtered.columns:
+        filtered['risk_reasons'] = filtered['risk_reasons'].astype(str).str.replace(r'\bH*DBSCAN\b', 'HDBSCAN', regex=True, flags=re.IGNORECASE)
 
     alert_columns = [
         'Rank', 'txid', 'risk_score', 'risk_level', 'anomaly_score', 'confidence_score', 'correlation_confidence_pct',

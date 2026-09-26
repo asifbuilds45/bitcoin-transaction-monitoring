@@ -29,14 +29,40 @@ class GeoIPEnricher:
     Operates strictly locally with zero outbound network calls.
     """
 
+# Standard ISO-3166-1 alpha-2 country code mappings for clean display
+ISO_COUNTRY_NAMES = {
+    "IN": "India", "US": "United States", "GB": "United Kingdom", "CA": "Canada",
+    "AU": "Australia", "SG": "Singapore", "DE": "Germany", "FR": "France",
+    "JP": "Japan", "CN": "China", "RU": "Russia", "BR": "Brazil",
+    "NL": "Netherlands", "CH": "Switzerland", "KR": "South Korea", "SE": "Sweden",
+    "NO": "Norway", "FI": "Finland", "ES": "Spain", "IT": "Italy",
+    "ZA": "South Africa", "MX": "Mexico", "ID": "Indonesia", "TR": "Turkey",
+    "SA": "Saudi Arabia", "AE": "United Arab Emirates", "IL": "Israel",
+    "PL": "Poland", "UA": "Ukraine", "RO": "Romania", "NZ": "New Zealand",
+    "IE": "Ireland", "AT": "Austria", "BE": "Belgium", "CZ": "Czech Republic",
+    "DK": "Denmark", "PT": "Portugal", "GR": "Greece", "HU": "Hungary",
+    "TH": "Thailand", "VN": "Vietnam", "MY": "Malaysia", "PH": "Philippines",
+    "HK": "Hong Kong", "TW": "Taiwan", "AR": "Argentina", "CL": "Chile",
+    "CO": "Colombia", "EG": "Egypt", "NG": "Nigeria", "KE": "Kenya"
+}
+
+
 def _find_default_db_path(filename: str) -> str:
-    """Locate GeoLite2 database file in data/geoip/ or data/."""
-    p1 = os.path.join("data", "geoip", filename)
+    """Locate GeoLite2 database file in data/geoip/ or data/ with robust absolute root lookup."""
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    p1 = os.path.join(base_dir, "data", "geoip", filename)
     if os.path.exists(p1):
         return p1
-    p2 = os.path.join("data", filename)
+    p2 = os.path.join(base_dir, "data", filename)
     if os.path.exists(p2):
         return p2
+    # Fallback to current working directory relative paths
+    p3 = os.path.join("data", "geoip", filename)
+    if os.path.exists(p3):
+        return p3
+    p4 = os.path.join("data", filename)
+    if os.path.exists(p4):
+        return p4
     return p1
 
 
@@ -115,12 +141,33 @@ class GeoIPEnricher:
         """
         Perform local offline lookup for a single IP address.
         
-        Private/synthetic/invalid IPs strictly return 'Unknown' for Country and ASN.
+        Public IPs are queried against local MaxMind GeoLite2 databases.
+        Private/synthetic IPs preserve dataset telemetry fallback when present,
+        or explicitly return 'Unknown' when no telemetry exists.
         Never fabricates location or network entity information.
         """
         clean_ip = str(ip_str).strip() if ip_str is not None else ""
 
-        # Validate IP syntax and private status
+        # Normalize fallback values
+        has_fb_c = bool(fallback_country and str(fallback_country).strip().upper() not in ["NAN", "NONE", "UNKNOWN", ""])
+        has_fb_a = bool(fallback_asn and str(fallback_asn).strip().upper() not in ["NAN", "NONE", "UNKNOWN", ""])
+
+        fb_c_raw = str(fallback_country).strip() if has_fb_c else "Unknown"
+        fb_a_raw = str(fallback_asn).strip() if has_fb_a else "Unknown"
+        fb_c_name = ISO_COUNTRY_NAMES.get(fb_c_raw.upper(), fb_c_raw) if has_fb_c else "Unknown"
+        fb_c_code = fb_c_raw.upper() if (has_fb_c and len(fb_c_raw) == 2) else ("Unknown" if fb_c_raw == "Unknown" else fb_c_raw)
+
+        # 1. Missing IP handling
+        if not clean_ip:
+            return {
+                "country": fb_c_name if has_fb_c else "Unknown",
+                "country_code": fb_c_code if has_fb_c else "Unknown",
+                "asn": fb_a_raw if has_fb_a else "Unknown",
+                "asn_org": "Unknown",
+                "lookup_status": "synthetic_fallback" if (has_fb_c or has_fb_a) else "missing_ip"
+            }
+
+        # 2. Validate IP syntax and private status
         try:
             ip_obj = ipaddress.ip_address(clean_ip)
             is_priv = (
@@ -132,15 +179,23 @@ class GeoIPEnricher:
             )
         except ValueError:
             return {
-                "country": "Unknown",
-                "country_code": "Unknown",
-                "asn": "Unknown",
+                "country": fb_c_name if has_fb_c else "Unknown",
+                "country_code": fb_c_code if has_fb_c else "Unknown",
+                "asn": fb_a_raw if has_fb_a else "Unknown",
                 "asn_org": "Unknown",
-                "lookup_status": "invalid_ip"
+                "lookup_status": "synthetic_fallback" if (has_fb_c or has_fb_a) else "invalid_ip"
             }
 
-        # Private / synthetic IP handling (strictly return Unknown)
+        # 3. Private / synthetic IP handling
         if is_priv:
+            if has_fb_c or has_fb_a:
+                return {
+                    "country": fb_c_name,
+                    "country_code": fb_c_code,
+                    "asn": fb_a_raw,
+                    "asn_org": "Unknown",
+                    "lookup_status": "synthetic_fallback"
+                }
             return {
                 "country": "Unknown",
                 "country_code": "Unknown",
@@ -149,16 +204,14 @@ class GeoIPEnricher:
                 "lookup_status": "private_ip"
             }
 
-        # If MMDB databases are not loaded, fallback cleanly to existing dataset attributes
+        # 4. If MMDB databases are not loaded, fallback cleanly
         if not self.databases_loaded:
-            fb_c = fallback_country if fallback_country and str(fallback_country).strip().upper() not in ["NAN", "NONE", ""] else "Unknown"
-            fb_a = fallback_asn if fallback_asn and str(fallback_asn).strip().upper() not in ["NAN", "NONE", ""] else "Unknown"
             return {
-                "country": fb_c,
-                "country_code": fb_c,
-                "asn": fb_a,
+                "country": fb_c_name,
+                "country_code": fb_c_code,
+                "asn": fb_a_raw,
                 "asn_org": "Unknown",
-                "lookup_status": "synthetic_fallback"
+                "lookup_status": "synthetic_fallback" if (has_fb_c or has_fb_a) else "not_found"
             }
 
         result = {
@@ -193,8 +246,21 @@ class GeoIPEnricher:
             except Exception as e:
                 logger.debug(f"ASN lookup error for {clean_ip}: {e}")
 
+        # Fallback to dataset metadata if MMDB didn't resolve specific attributes
+        if result["country"] == "Unknown" and has_fb_c:
+            result["country"] = fb_c_name
+            result["country_code"] = fb_c_code
+
+        if result["asn"] == "Unknown" and has_fb_a:
+            result["asn"] = fb_a_raw
+
+        # Set status appropriately
         if result["country"] != "Unknown" or result["asn"] != "Unknown":
-            result["lookup_status"] = "geoip_resolved"
+            if (self.country_reader and result["country"] not in ["Unknown", fb_c_name]) or \
+               (self.asn_reader and result["asn"] not in ["Unknown", fb_a_raw]):
+                result["lookup_status"] = "geoip_resolved"
+            else:
+                result["lookup_status"] = "synthetic_fallback" if (has_fb_c or has_fb_a) else "geoip_resolved"
 
         return result
 
@@ -215,7 +281,6 @@ class GeoIPEnricher:
         """
         df_enriched = df.copy(deep=True)
 
-        # Optimization: Cache IP lookups across unique IP addresses
         has_src_c = 'src_country' in df_enriched.columns
         has_src_a = 'src_asn' in df_enriched.columns
         has_dst_c = 'dst_country' in df_enriched.columns
@@ -224,32 +289,37 @@ class GeoIPEnricher:
         unique_src_ips = df_enriched['src_ip'].dropna().unique() if 'src_ip' in df_enriched.columns else []
         unique_dst_ips = df_enriched['dst_ip'].dropna().unique() if 'dst_ip' in df_enriched.columns else []
 
+        # Fast lookup mapping using first matching row values
+        src_fb_map = {}
+        if len(unique_src_ips) > 0 and (has_src_c or has_src_a):
+            subset_cols = ['src_ip']
+            if has_src_c: subset_cols.append('src_country')
+            if has_src_a: subset_cols.append('src_asn')
+            src_first = df_enriched[subset_cols].drop_duplicates(subset=['src_ip']).set_index('src_ip')
+            for ip in unique_src_ips:
+                fb_c = str(src_first.loc[ip, 'src_country']) if has_src_c and pd.notna(src_first.loc[ip, 'src_country']) else "Unknown"
+                fb_a = str(src_first.loc[ip, 'src_asn']) if has_src_a and pd.notna(src_first.loc[ip, 'src_asn']) else "Unknown"
+                src_fb_map[ip] = (fb_c, fb_a)
+
+        dst_fb_map = {}
+        if len(unique_dst_ips) > 0 and (has_dst_c or has_dst_a):
+            subset_cols = ['dst_ip']
+            if has_dst_c: subset_cols.append('dst_country')
+            if has_dst_a: subset_cols.append('dst_asn')
+            dst_first = df_enriched[subset_cols].drop_duplicates(subset=['dst_ip']).set_index('dst_ip')
+            for ip in unique_dst_ips:
+                fb_c = str(dst_first.loc[ip, 'dst_country']) if has_dst_c and pd.notna(dst_first.loc[ip, 'dst_country']) else "Unknown"
+                fb_a = str(dst_first.loc[ip, 'dst_asn']) if has_dst_a and pd.notna(dst_first.loc[ip, 'dst_asn']) else "Unknown"
+                dst_fb_map[ip] = (fb_c, fb_a)
+
         src_lookup_map = {}
         for ip in unique_src_ips:
-            fb_c = "Unknown"
-            fb_a = "Unknown"
-            if has_src_c:
-                row_match = df_enriched[df_enriched['src_ip'] == ip]
-                if not row_match.empty:
-                    fb_c = str(row_match['src_country'].iloc[0])
-            if has_src_a:
-                row_match = df_enriched[df_enriched['src_ip'] == ip]
-                if not row_match.empty:
-                    fb_a = str(row_match['src_asn'].iloc[0])
+            fb_c, fb_a = src_fb_map.get(ip, ("Unknown", "Unknown"))
             src_lookup_map[ip] = self.lookup_ip(ip, fallback_country=fb_c, fallback_asn=fb_a)
 
         dst_lookup_map = {}
         for ip in unique_dst_ips:
-            fb_c = "Unknown"
-            fb_a = "Unknown"
-            if has_dst_c:
-                row_match = df_enriched[df_enriched['dst_ip'] == ip]
-                if not row_match.empty:
-                    fb_c = str(row_match['dst_country'].iloc[0])
-            if has_dst_a:
-                row_match = df_enriched[df_enriched['dst_ip'] == ip]
-                if not row_match.empty:
-                    fb_a = str(row_match['dst_asn'].iloc[0])
+            fb_c, fb_a = dst_fb_map.get(ip, ("Unknown", "Unknown"))
             dst_lookup_map[ip] = self.lookup_ip(ip, fallback_country=fb_c, fallback_asn=fb_a)
 
         # Vectorized mapping
@@ -295,16 +365,25 @@ class GeoIPEnricher:
             self.asn_reader = None
 
 
+_STATUS_CACHE: Dict[Tuple[Optional[str], Optional[str]], Dict[str, Any]] = {}
+
 def get_geoip_status(
     country_db_path: Optional[str] = None,
     asn_db_path: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Query local GeoIP database availability without running full enrichment."""
+    """Query local GeoIP database availability without running full enrichment (cached)."""
+    cache_key = (country_db_path, asn_db_path)
+    if cache_key in _STATUS_CACHE:
+        return _STATUS_CACHE[cache_key]
+    
     enricher = GeoIPEnricher(country_db_path=country_db_path, asn_db_path=asn_db_path)
     try:
-        return enricher.get_status()
+        status = enricher.get_status()
+        _STATUS_CACHE[cache_key] = status
+        return status
     finally:
         enricher.close()
+
 
 
 def enrich_transactions_with_geoip(

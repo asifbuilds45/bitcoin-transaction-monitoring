@@ -225,23 +225,74 @@ Built with **ReportLab**, the system generates comprehensive forensic security t
 
 ---
 
-## 10. Ubuntu / Linux Setup & Execution Guide
+---
 
+## 10. Scalable Enterprise Offline Architecture & Upgrades
+
+This prototype includes production-grade enterprise components engineered specifically for air-gapped, high-throughput national security environments:
+
+### A. Local PostgreSQL Persistence & Connection Pooling (`src/database/db_manager.py`)
+- **Engine:** PostgreSQL 18 connection with `QueuePool` connection pooling (`pool_size=10`, `max_overflow=20`, `pool_recycle=1800s`).
+- **Automatic Indexing:** Automatically creates optimized B-tree indexes on `transactions(txid, src_ip, source_wallet, destination_wallet, risk_level, is_anomaly)` and `alerts(txid, priority)`.
+- **Graceful Failover:** Seamlessly operates on local SQLite database (`data/bitcoin_monitoring.db`) if PostgreSQL is unavailable.
+- **Migration Script:** `scripts/migrate_sqlite_to_postgres.py` transfers historical SQLite data into PostgreSQL with a single command.
+
+### B. HDBSCAN Density-Based Behavioural Clustering (`src/clustering/hdbscan_clustering.py`)
+- **Hierarchical Density:** Upgrades traditional DBSCAN by discovering clusters of varying density without requiring a rigid global epsilon distance parameter.
+- **Continuous Outlier Scoring:** Extracts GLOSH (Global-Local Outlier Score from Hierarchies) to compute fine-grained normalized evidence scores ($0.0 - 1.0$) for sparse clusters and noise points ($-1$).
+
+### C. Leiden Graph Community Detection (`src/graph/leiden_community.py`)
+- **Backend:** High-performance C-based `igraph` engine with `leidenalg`.
+- **Guaranteed Connectivity:** Resolves Louvain's tendency to produce internally disconnected communities, guaranteeing well-connected multi-entity community partitions across IPs, Wallets, and TXIDs.
+
+### D. Neo4j Graph Database Integration (`src/graph/neo4j_manager.py`)
+- **Bolt Protocol:** Connects to local Neo4j graph database instances with batched Cypher `UNWIND` synchronization.
+- **In-Memory Fallback:** When Neo4j is offline, the system runs with zero downtime on in-memory NetworkX directed graphs.
+
+### E. TreeSHAP Explainability (`src/explainability/shap_explainer.py`)
+- **Mathematical Attribution:** Uses `shap.TreeExplainer` on surrogate decision trees for path-dependent Shapley values.
+- **Global & Local Insights:** Computes global feature importance rankings and single-transaction waterfall feature contributions.
+
+### F. Datashader Offline Rasterization (`src/visualization/datashader_renderer.py`)
+- **Massive Point Density:** Rapidly renders hundreds of thousands of network telemetry data points into 2D density heatmaps and base64-encoded PNGs without browser lag. Operates 100% offline.
+
+### G. FastAPI Enterprise REST API & Offline React 18 Dashboard
+- **REST Service:** High-speed asynchronous FastAPI service (`src/api/main.py`) exposing all 9 investigation modules.
+- **Air-Gapped React Dashboard:** Self-contained, zero-CDN forensic dashboard pre-built in `frontend/dist/index.html` with dark cyber theme, live KPI cards, interactive alerts, and offline AI chatbot interface.
+
+### H. Behavioural Pattern Detection (`src/patterns/`)
+- **Peeling-Chain Detection (`src/patterns/peeling_chain_detector.py`):** Identifies sequential fund-peeling chains across multi-hop transactions using structural graph traversal, single-continuation volume constraints, amount continuity bounded by miner fee limits, and hop position indexing. Integrates as a 6th grouping criterion in `AlertCaseGrouper` and emits `PEELING_CHAIN` evidence timeline events.
+- **CoinJoin-Like / Mixing Pattern Detection (`src/patterns/coinjoin_detector.py`):** Detects anonymisation and mixing indicators using multi-condition structural analysis: minimum input/output participant counts, equal-denomination output clustering within configurable BTC tolerance, equal-output ratio thresholds, and strict exclusion of simple fan-in consolidations or single-dominant-input transfers. Emits `COINJOIN_LIKE` evidence timeline events.
+- **Unified 11-Channel Evidence Fusion (`src/fusion/evidence_fusion.py`):** Adds `peeling_chain_evidence` and `coinjoin_evidence` as first-class channels to the Multi-Layer Evidence Fusion Engine, renormalized to guarantee sum = 1.0.
+- **Defensive Language Compliance:** All detector outputs are strictly classified as *investigation evidence* and *behavioural indicators*, never criminal verdicts, with audit-ready non-attribution notes.
+
+---
+
+## 11. Ubuntu / Linux & Windows Execution Guide
+
+### Windows (PowerShell)
+```powershell
+# Setup environment and verify air-gapped readiness
+.\setup_offline_environment.ps1
+
+# Run air-gapped test suite
+python tests/test_offline_readiness.py
+
+# Launch both FastAPI + React Dashboard and Streamlit Dashboard
+.\start_offline_system.ps1
+```
+
+### Ubuntu / Linux (Bash)
 ```bash
-# 1. Clone repository and navigate to folder
-cd "Bitcoin Monitoring"
+# Setup environment and verify air-gapped readiness
+chmod +x setup_offline_environment.sh start_offline_system.sh
+./setup_offline_environment.sh
 
-# 2. Activate virtual environment
-source ./venv/bin/activate
+# Run air-gapped test suite
+python3 tests/test_offline_readiness.py
 
-# 3. Install required dependencies
-pip install -r requirements.txt
-
-# 4. Run automated unit & integration test suite
-python3 -m unittest -v tests/test_pipeline.py
-
-# 5. Launch interactive Streamlit prototype
-streamlit run app.py
+# Launch all services
+./start_offline_system.sh
 ```
 
 ---

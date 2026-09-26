@@ -2,8 +2,9 @@
 Multi-Layer Evidence Fusion Engine
 NTRO Problem Statement 26146: AI-Powered Monitoring & Analysis of Bitcoin Transaction Traffic
 
-Fuses 9 independent evidence channels normalized to [0.0, 1.0] using explicit,
+Fuses 11 independent evidence channels normalized to [0.0, 1.0] using explicit,
 configurable weights that sum to 1.0.
+Channels 10-11 added: peeling_chain_evidence, coinjoin_evidence (Behavioural Pattern Detection).
 """
 
 import pandas as pd
@@ -11,16 +12,19 @@ import numpy as np
 from typing import Dict, Any, List, Tuple, Optional
 
 # Default Evidence Weights (Must sum to 1.0)
+# Original 9 channels renormalized by factor 0.91; 0.09 freed for 2 new pattern channels.
 DEFAULT_EVIDENCE_WEIGHTS = {
-    "isolation_forest_evidence": 0.20,  # AI Unsupervised Tree Isolation
-    "dbscan_evidence": 0.10,            # Behavioural Clustering & Noise
-    "louvain_community_evidence": 0.10, # Graph Community Modularity
-    "temporal_evidence": 0.12,          # Time Gap & 24h Velocity
-    "behavioural_evidence": 0.13,       # Wallet Degree & Proxy Dispersion
-    "graph_evidence": 0.10,             # Network Topology & Centrality
-    "geo_asn_evidence": 0.08,           # Geographic/ASN Diversity
-    "blockchain_evidence": 0.09,        # Volume & Miner Fee Ratio
-    "network_evidence": 0.08            # Packet Burst & Duration
+    "isolation_forest_evidence": 0.182,  # AI Unsupervised Tree Isolation
+    "dbscan_evidence": 0.091,            # Behavioural Clustering & Noise
+    "louvain_community_evidence": 0.091, # Graph Community Modularity
+    "temporal_evidence": 0.109,          # Time Gap & 24h Velocity
+    "behavioural_evidence": 0.118,       # Wallet Degree & Proxy Dispersion
+    "graph_evidence": 0.091,             # Network Topology & Centrality
+    "geo_asn_evidence": 0.073,           # Geographic/ASN Diversity
+    "blockchain_evidence": 0.082,        # Volume & Miner Fee Ratio
+    "network_evidence": 0.073,           # Packet Burst & Duration
+    "peeling_chain_evidence": 0.050,     # Peeling-chain pattern behavioural indicator
+    "coinjoin_evidence": 0.040,          # CoinJoin-like / mixing pattern indicator
 }
 
 
@@ -56,11 +60,12 @@ class MultiLayerEvidenceFusionEngine:
         if if_score >= 0.65:
             top_reasons.append(f"AI Isolation Forest score: {if_score:.3f}")
 
-        # 2. DBSCAN Evidence
-        db_score = float(row.get('dbscan_evidence', 0.0))
+        # 2. HDBSCAN Behavioural Evidence
+        db_score = float(row.get('hdbscan_evidence', row.get('dbscan_evidence', 0.0)))
         breakdown['dbscan_evidence'] = float(np.clip(db_score, 0.0, 1.0))
+        breakdown['hdbscan_evidence'] = breakdown['dbscan_evidence']
         if db_score >= 0.70:
-            top_reasons.append("DBSCAN flagged unclustered behavioural noise/outlier")
+            top_reasons.append("HDBSCAN flagged unclustered behavioural noise/outlier")
 
         # 3. Louvain Community Evidence
         louv_score = float(row.get('louvain_community_evidence', 0.0))
@@ -112,7 +117,30 @@ class MultiLayerEvidenceFusionEngine:
         if pkts >= 1500:
             top_reasons.append(f"High network packet count: {int(pkts):,} packets")
 
-        # Compute weighted sum
+        # 10. Peeling-Chain Pattern Evidence
+        peel_score = float(row.get('peeling_chain_evidence', 0.0))
+        breakdown['peeling_chain_evidence'] = float(np.clip(peel_score, 0.0, 1.0))
+        if peel_score >= 0.30:
+            peel_chain_id = str(row.get('peeling_chain_id', ''))
+            peel_pos = int(row.get('peeling_chain_position', 0))
+            peel_len = int(row.get('peeling_chain_length', 0))
+            top_reasons.append(
+                f"Peeling-chain pattern detected ({peel_chain_id}, hop {peel_pos}/{peel_len}) — "
+                "Investigation evidence. Requires further investigation."
+            )
+
+        # 11. CoinJoin-Like / Mixing Pattern Evidence
+        cj_score = float(row.get('coinjoin_evidence', 0.0))
+        breakdown['coinjoin_evidence'] = float(np.clip(cj_score, 0.0, 1.0))
+        if cj_score >= 0.30:
+            cj_eq_count = int(row.get('coinjoin_equal_output_count', 0))
+            cj_eq_ratio = float(row.get('coinjoin_equal_output_ratio', 0.0))
+            top_reasons.append(
+                f"CoinJoin-like / mixing pattern detected ({cj_eq_count} equal outputs, "
+                f"ratio={cj_eq_ratio:.2f}) — Behavioural indicator. Requires further investigation."
+            )
+
+
         fused_score = sum(breakdown[k] * self.weights.get(k, 0.0) for k in breakdown)
         clamped_fused = float(np.clip(fused_score, 0.0, 1.0))
 

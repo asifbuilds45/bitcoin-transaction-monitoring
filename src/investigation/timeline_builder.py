@@ -7,6 +7,7 @@ transaction confirmations, wallet fund-flows, and detection events.
 Strict Rule: Never assert an unverified 'attack sequence' without conclusive proof.
 """
 
+import re
 from typing import List, Dict, Any, Optional
 import pandas as pd
 
@@ -115,22 +116,22 @@ class EvidenceTimelineBuilder:
                     "raw_timestamp": pd.to_datetime(chain_ts, errors='coerce')
                 })
 
-            # 5. DBSCAN Behavioural Clustering
-            cluster_id = row.get('dbscan_cluster')
-            is_noise = bool(row.get('dbscan_is_noise', False))
+            # 5. HDBSCAN Behavioural Clustering
+            cluster_id = row.get('hdbscan_cluster', row.get('dbscan_cluster'))
+            is_noise = bool(row.get('hdbscan_is_noise', row.get('dbscan_is_noise', False)))
             if cluster_id is not None:
                 if is_noise or cluster_id == -1:
-                    cluster_desc = "Unsupervised DBSCAN identified transaction as sparse unclustered noise anomaly point (-1)."
+                    cluster_desc = "Unsupervised HDBSCAN identified transaction as sparse unclustered noise anomaly point (-1)."
                     c_sev = "WARNING"
                 else:
-                    cluster_desc = f"Unsupervised DBSCAN assigned transaction to behavioral cluster #{cluster_id}."
+                    cluster_desc = f"Unsupervised HDBSCAN assigned transaction to behavioral cluster #{cluster_id}."
                     c_sev = "INFO"
 
                 events.append({
                     "timestamp": str(chain_ts),
                     "event_type": "BEHAVIOURAL_CLUSTERING",
                     "badge": "🔍 Behavioural Cluster",
-                    "entity": f"DBSCAN: {'Noise (-1)' if is_noise or cluster_id == -1 else f'Cluster #{cluster_id}'}",
+                    "entity": f"HDBSCAN: {'Noise (-1)' if is_noise or cluster_id == -1 else f'Cluster #{cluster_id}'}",
                     "description": cluster_desc,
                     "severity": c_sev,
                     "raw_timestamp": pd.to_datetime(chain_ts, errors='coerce')
@@ -140,7 +141,7 @@ class EvidenceTimelineBuilder:
             risk_score = float(row.get('risk_score', 0.0))
             risk_level = str(row.get('risk_level', 'LOW')).upper()
             anomaly_score = float(row.get('anomaly_score', 0.0))
-            reasons = str(row.get('risk_reasons', 'Normal traffic characteristics.'))
+            reasons = re.sub(r'\bH*DBSCAN\b', 'HDBSCAN', str(row.get('risk_reasons', 'Normal traffic characteristics.')), flags=re.IGNORECASE)
 
             if risk_level in ['HIGH', 'CRITICAL'] or row.get('is_anomaly', False):
                 events.append({
@@ -150,6 +151,48 @@ class EvidenceTimelineBuilder:
                     "entity": f"Risk Score: {int(risk_score)}/100 (AI Score: {anomaly_score:.3f})",
                     "description": f"Multi-layer fusion generated priority investigation alert. Key signals: {reasons}",
                     "severity": "CRITICAL" if risk_level == "CRITICAL" else "HIGH",
+                    "raw_timestamp": pd.to_datetime(chain_ts, errors='coerce')
+                })
+
+            # 7. Peeling-Chain Pattern Event
+            peel_detected = bool(row.get('peeling_chain_detected', False))
+            peel_score = float(row.get('peeling_chain_evidence', 0.0))
+            if peel_detected and peel_score > 0:
+                peel_chain_id = str(row.get('peeling_chain_id', ''))
+                peel_pos = int(row.get('peeling_chain_position', 0))
+                peel_len = int(row.get('peeling_chain_length', 0))
+                events.append({
+                    "timestamp": str(chain_ts),
+                    "event_type": "PEELING_CHAIN",
+                    "badge": "🔗 Peeling-Chain Pattern",
+                    "entity": f"Chain {peel_chain_id} — Hop {peel_pos}/{peel_len}",
+                    "description": (
+                        f"Peeling-chain pattern detected: transaction is hop {peel_pos} of {peel_len} "
+                        f"in chain {peel_chain_id} (evidence score: {peel_score:.3f}). "
+                        "Investigation evidence — Requires further investigation."
+                    ),
+                    "severity": "WARNING",
+                    "raw_timestamp": pd.to_datetime(chain_ts, errors='coerce')
+                })
+
+            # 8. CoinJoin-Like Pattern Event
+            cj_detected = bool(row.get('coinjoin_detected', False))
+            cj_score = float(row.get('coinjoin_evidence', 0.0))
+            if cj_detected and cj_score > 0:
+                cj_eq_count = int(row.get('coinjoin_equal_output_count', 0))
+                cj_eq_ratio = float(row.get('coinjoin_equal_output_ratio', 0.0))
+                cj_amount = float(row.get('coinjoin_equal_amount_btc', 0.0))
+                events.append({
+                    "timestamp": str(chain_ts),
+                    "event_type": "COINJOIN_LIKE",
+                    "badge": "🔀 CoinJoin-Like Pattern",
+                    "entity": f"{cj_eq_count} equal outputs (≈{cj_amount:.6f} BTC, ratio={cj_eq_ratio:.2f})",
+                    "description": (
+                        f"CoinJoin-like / mixing pattern detected: {cj_eq_count} outputs share ≈{cj_amount:.6f} BTC "
+                        f"(equal-output ratio: {cj_eq_ratio:.2f}, evidence score: {cj_score:.3f}). "
+                        "Behavioural indicator — Requires further investigation."
+                    ),
+                    "severity": "WARNING",
                     "raw_timestamp": pd.to_datetime(chain_ts, errors='coerce')
                 })
 

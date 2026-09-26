@@ -117,7 +117,7 @@ class AlertCaseGrouper:
                             f"Shared network vantage point ({ip}) within {int(diff/60)}m window"
                         )
 
-        # 5. Group by dense DBSCAN Behavioural Cluster within 4 hours (Linear path connection O(N))
+        # 5. Group by dense HDBSCAN Behavioural Cluster within 4 hours (Linear path connection O(N))
         for c_id, group in cluster_idx.items():
             if len(group) > 1:
                 valid_entries = [g for g in group if pd.notna(g[1])]
@@ -128,10 +128,32 @@ class AlertCaseGrouper:
                         add_case_edge(
                             valid_entries[i][0],
                             valid_entries[i + 1][0],
-                            f"DBSCAN Behavioural Cluster #{c_id} temporal alignment"
+                            f"HDBSCAN Behavioural Cluster #{c_id} temporal alignment"
                         )
 
-        # Extract connected components (each component forms a Case)
+        # 6. Group by shared Peeling-Chain ID (sequential fund-flow chain members)
+        peeling_chain_idx: Dict[str, List[str]] = {}
+        for txid, rec in tx_rows.items():
+            chain_id = str(rec.get('peeling_chain_id', '')).strip()
+            if chain_id and chain_id != '' and chain_id != 'nan':
+                peeling_chain_idx.setdefault(chain_id, []).append(txid)
+
+        for chain_id, tx_group in peeling_chain_idx.items():
+            if len(tx_group) > 1:
+                # Connect chain members in order of their hop position
+                sorted_group = sorted(
+                    tx_group,
+                    key=lambda t: int(tx_rows[t].get('peeling_chain_position', 0))
+                )
+                anchor = sorted_group[0]
+                for node in sorted_group[1:]:
+                    add_case_edge(
+                        anchor, node,
+                        f"Peeling-chain pattern members ({chain_id})"
+                    )
+                    anchor = node  # path-style connection
+
+
         components = list(nx.connected_components(alert_graph))
 
         case_candidates = []
@@ -193,6 +215,8 @@ class AlertCaseGrouper:
                     case_title = "Coordinated Multi-Output Source Wallet Activity"
                 elif any("Sequential fund flow" in r for r in case_reasons):
                     case_title = "Multi-Hop Chained Transaction Fund-Flow"
+                elif any("Peeling-chain pattern" in r for r in case_reasons):
+                    case_title = "Peeling-Chain Fund-Flow Pattern Activity"
                 elif any("Shared network vantage point" in r for r in case_reasons):
                     case_title = "Correlated Network Vantage Point Broadcast Activity"
                 elif any("DBSCAN" in r for r in case_reasons):

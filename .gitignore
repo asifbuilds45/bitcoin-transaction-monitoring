@@ -37,7 +37,13 @@ wheels/
 *.swp
 *.swo
 
-# OS generated files
-.DS_Store
-Thumbs.db
 data/geoip/*.mmdb
+
+# Local environment & temporary stubs
+.env
+.env.local
+reportlab_stub_disabled/
+*.pdf
+test_*.py
+!tests/**
+tests/**/__pycache__/**

@@ -111,16 +111,49 @@ class InvestigationPathReconstructor:
                 "risk_score": tx_risk,
                 "risk_level": str(primary_tx.get('risk_level', 'UNKNOWN')),
                 "anomaly_score": float(primary_tx.get('anomaly_score', 0.0)),
-                "timestamp": str(primary_tx.get('timestamp', ''))
+                "timestamp": str(primary_tx.get('timestamp', '')),
+                # Pattern metadata
+                "peeling_chain_detected": bool(primary_tx.get('peeling_chain_detected', False)),
+                "peeling_chain_id": str(primary_tx.get('peeling_chain_id', '')),
+                "peeling_chain_position": int(primary_tx.get('peeling_chain_position', 0)),
+                "peeling_chain_length": int(primary_tx.get('peeling_chain_length', 0)),
+                "coinjoin_detected": bool(primary_tx.get('coinjoin_detected', False)),
+                "coinjoin_equal_output_count": int(primary_tx.get('coinjoin_equal_output_count', 0)),
             }
         }
 
+        # Peeling-chain step: indicates this tx is part of a sequential peel chain
+        peeling_step = None
+        if bool(primary_tx.get('peeling_chain_detected', False)):
+            peel_id = str(primary_tx.get('peeling_chain_id', ''))
+            peel_pos = int(primary_tx.get('peeling_chain_position', 0))
+            peel_len = int(primary_tx.get('peeling_chain_length', 0))
+            peeling_step = {
+                "step": 2,  # Parallel to base_tx_step, prepended as context
+                "entity_type": "PATTERN",
+                "entity_id": peel_id,
+                "label": "Peeling-Chain Pattern Indicator",
+                "relationship": (
+                    f"Transaction is hop {peel_pos} of {peel_len} in peeling chain {peel_id}. "
+                    "Investigation evidence — Requires further investigation."
+                ),
+                "metadata": {
+                    "chain_id": peel_id,
+                    "position": peel_pos,
+                    "chain_length": peel_len,
+                    "evidence_score": float(primary_tx.get('peeling_chain_evidence', 0.0)),
+                }
+            }
+
         if max_depth <= 1:
+            steps = [base_net_step, base_tx_step]
+            if peeling_step:
+                steps.append(peeling_step)
             return [{
                 "path_id": 1,
                 "priority_score": tx_risk,
-                "total_hops": 2,
-                "steps": [base_net_step, base_tx_step]
+                "total_hops": len(steps),
+                "steps": steps
             }]
 
         candidate_paths = []

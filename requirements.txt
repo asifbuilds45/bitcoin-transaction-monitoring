@@ -1,8 +1,36 @@
+# ==============================================================================
+# Bitcoin Sentinel - Air-Gapped Forensic Platform Requirements
+# NTRO Problem Statement 26146: AI-Powered Monitoring & Analysis of Bitcoin Transaction Traffic
+# ==============================================================================
+
+# Core Data Science & Numerical Pipeline
 pandas>=2.0.0
 numpy>=1.24.0
 scikit-learn>=1.3.0
+
+# Graph Analytics & Community Detection
 networkx>=3.0
+python-igraph>=1.0.0
+leidenalg>=0.10.0
+
+# Database Persistence & Scalable Pooling
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+neo4j>=5.10.0
+
+# Large-Scale Forensic Visualization & Reporting
 plotly>=5.15.0
-streamlit>=1.25.0
+datashader>=0.16.0
+reportlab>=4.0.0
 geoip2>=4.7.0
-reportlab>=4.0
+
+# Machine Learning Explainability (TreeSHAP)
+shap>=0.42.0
+
+# High-Performance REST API & Asynchronous Services
+fastapi>=0.100.0
+uvicorn>=0.23.0
+httpx>=0.25.0
+
+# Forensic Investigator Dashboards
+streamlit>=1.25.0
