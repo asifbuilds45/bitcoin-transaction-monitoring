@@ -1,304 +1,349 @@
 # AI-Powered Monitoring & Analysis of Bitcoin Transaction Traffic
-### NTRO Problem Statement ID: 26146 | Offline Cybersecurity Prototype
+### NTRO Problem Statement ID: 26146 | Air-Gapped Offline Cybersecurity Workstation
+
+![Python Version](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.14-blue?logo=python)
+![Air-Gapped](https://img.shields.io/badge/Environment-100%25%20Offline%20Air--Gapped-green?logo=shield)
+![Machine Learning](https://img.shields.io/badge/ML-Isolation%20Forest%20%2B%20HDBSCAN-orange)
+![Graph Intelligence](https://img.shields.io/badge/Graph-Leiden%20Modularity%20%2B%20NetworkX-purple)
+![Explainability](https://img.shields.io/badge/XAI-TreeSHAP%20Waterfall-red)
+![Desktop App](https://img.shields.io/badge/Deployment-Windows%20Desktop%20%2B%20Linux%20CLI-cyan)
+![Reporting](https://img.shields.io/badge/Dossiers-ReportLab%20Vector%20PDF-brightgreen)
 
 ---
 
-## 1. Problem Statement & Background
+## 1. Problem Statement & Operational Context
 
-### Context & Challenge
+### Problem Title
+**AI-Powered Monitoring and Analysis of Bitcoin Transaction Traffic** (NTRO Problem Statement ID: 26146).
+
+### Operational Background & Threat Landscape
 The Bitcoin peer-to-peer network operates as a decentralized, pseudo-anonymous financial layer. While cryptographic transaction ledgers are publicly auditable on-chain, transaction broadcasts originate at the network layer (OSI Layer 3/4) via P2P TCP gossip protocols (ports 8333, 18333, 18444). 
 
-Threat actors, illicit mixing services, ransomware operators, and botnets exploit this dual-layer separation by utilizing multi-hop proxying, VPN dispersion, rapid peeling chains, fan-out/fan-in splitting, and automated high-frequency transfer patterns.
+Adversaries, ransomware cartels, illicit mixing syndicates, and botnets exploit this dual-layer separation by utilizing:
+- **Multi-Hop Proxying & VPN Dispersion:** Broadcasting transactions across disparate autonomous systems to obscure origin.
+- **Rapid Peeling Chains:** Splitting small amounts to payees while sequentially hopping the bulk change across temporary wallets.
+- **CoinJoin / Denomination Equalization:** Obfuscating inputs/outputs in high-volume mixing pools.
+- **Fan-Out / Fan-In Distribution:** Rapid splitting and consolidation to foil classical heuristic tracing.
 
-### Objective
-This prototype provides an **offline, AI-driven cybersecurity investigation system** that:
-1. Ingests bulk Bitcoin network telemetry and on-chain UTXO metadata.
-2. Performs offline geographic and ASN enrichment on IP addresses via local MaxMind GeoLite2 databases.
-3. Constructs multi-modal entity correlation graphs ($IP \leftrightarrow TXID \leftrightarrow Wallet$).
-4. Applies unsupervised Machine Learning (**Isolation Forest**) on behavioral features without relying on labeled attack data.
-5. Computes multi-factor explainable risk scores ($0 - 100$) with natural-language investigative evidence.
-6. Presents a prioritized triage queue and interactive forensic investigation dashboard via Streamlit and Plotly.
+### Project Objective
+A self-contained, **100% offline air-gapped forensic workstation** that ingests bulk network telemetry and blockchain metadata, performs multi-modal correlation ($IP \leftrightarrow TXID \leftrightarrow Wallet$), applies dual-layer unsupervised machine learning (**Isolation Forest + HDBSCAN**), executes **Leiden** community graph partitioning, reconstructs multi-hop fund-flow trails, groups alerts into cohesive investigative cases, and generates court-admissible vector PDF dossiers.
 
 ---
 
-## 2. System Architecture
+## 2. Complete Technology Stack
+
+| Layer | Technology | Version | Purpose & Implementation |
+| :--- | :--- | :--- | :--- |
+| **Core Runtime** | Python | 3.10 – 3.14 | Strictly offline, zero cloud calls, multi-threaded analytical pipeline. |
+| **Anomaly Detection** | Scikit-Learn | $\ge 1.3.0$ | **Isolation Forest** unsupervised tree isolation on 15+ behavioral features. |
+| **Behavioural Clustering** | HDBSCAN / Scikit-Learn | $\ge 0.8.33$ | **Hierarchical Density-Based Clustering** with GLOSH outlier scoring. |
+| **Graph Intelligence** | NetworkX & python-igraph | $\ge 3.0 / \ge 0.10$ | Directed bipartite/tripartite entity graphs ($IP \leftrightarrow TXID \leftrightarrow Wallet$). |
+| **Community Detection** | Leidenalg / igraph | $\ge 0.9.0$ | **Leiden Modularity Partitioning** (guaranteed internal node connectivity). |
+| **Graph DB Integration** | Neo4j Bolt Driver | $\ge 5.0$ | Batched Cypher `UNWIND` persistence with in-memory NetworkX failover. |
+| **Explainable AI (XAI)** | SHAP (TreeSHAP) | $\ge 0.44.0$ | Exact Shapley feature contribution values & beeswarm/waterfall plots. |
+| **Large-Scale Visualization** | Datashader / Colorcet | $\ge 0.16.0$ | Offline server-side 2D rasterization of dense telemetry points without lag. |
+| **GeoIP / Network Vantage**| MaxMind GeoLite2 (`.mmdb`) | Local DBs | Offline Country & ASN resolution with strict non-fabrication of private IPs. |
+| **Databases & Persistence** | PostgreSQL / SQLAlchemy | 16/18 / $\ge 2.0$ | Enterprise `QueuePool` connection pooling with automatic fallback to **SQLite3**. |
+| **Forensic PDF Dossiers** | ReportLab | $\ge 4.0$ | Deterministic, vector-graphic, multi-page forensic threat dossiers. |
+| **Primary Forensic UI** | Streamlit | $\ge 1.30.0$ | 10-Tab client-side dark-themed investigative analyst workstation. |
+| **REST API Engine** | FastAPI & Uvicorn | $\ge 0.104$ | Asynchronous REST service exposing forensic pipelines for air-gapped SOCs. |
+| **Offline Desktop App** | Windows WebView2 / Edge | Native | Standalone frameless application mode (`.exe` / `.bat` / `.vbs` launchers). |
+| **Offline AI Assistant** | Custom Knowledge Engine | Native | Rule-based & local fallback LLM knowledge retriever for natural language Q&A. |
+| **Test Automation** | Pytest | $\ge 7.4$ | Comprehensive air-gapped readiness, refresh, and pattern detection tests. |
+
+---
+
+## 3. System Architecture & Evidence Flow
 
 ```
-                       ┌──────────────────────────────────────────────┐
-                       │  Raw Synthetic Master Dataset (data/*.csv)   │
-                       └──────────────────────┬───────────────────────┘
-                                              │
-                                              ▼
-                       ┌──────────────────────────────────────────────┐
-                       │   Data Ingestion & Schema Preprocessing      │
-                       │          (src/preprocessing.py)              │
-                       └──────────────────────┬───────────────────────┘
-                                              │
-                                              ▼
-                       ┌──────────────────────────────────────────────┐
-                       │   Offline GeoIP & ASN Vantage Enrichment     │
-                       │         (src/geoip_enrichment.py)            │
-                       └──────────────────────┬───────────────────────┘
-                                              │
-                                              ▼
-                       ┌──────────────────────────────────────────────┐
-                       │   IP-TXID-Wallet Multi-Modal Correlation     │
-                       │           (src/correlation.py)               │
-                       └──────────────────────┬───────────────────────┘
-                                              │
-                                              ▼
-                       ┌──────────────────────────────────────────────┐
-                       │       NetworkX Directed Entity Graph         │
-                       │          (src/graph_analysis.py)             │
-                       └──────────────────────┬───────────────────────┘
-                                              │
-                                              ▼
-                       ┌──────────────────────────────────────────────┐
-                       │    Behavioral & Graph Feature Engineering    │
-                       │        (src/feature_engineering.py)          │
-                       │    [Strictly Unsupervised — No Leakage]      │
-                       └──────────────────────┬───────────────────────┘
-                                              │
-                                              ▼
-                       ┌──────────────────────────────────────────────┐
-                       │     Isolation Forest Anomaly Detection       │
-                       │        (src/anomaly_detection.py)            │
-                       └──────────────────────┬───────────────────────┘
-                                              │
-                                              ▼
-                       ┌──────────────────────────────────────────────┐
-                       │  Multi-Factor Risk Engine (0-100) & Evidence │
-                       │           (src/risk_scoring.py)              │
-                       └──────────────────────┬───────────────────────┘
-                                              │
-                                              ▼
-                       ┌──────────────────────────────────────────────┐
-                       │  Prioritized Alert Queue & Forensic Triage   │
-                       │         Streamlit Dashboard (app.py)         │
-                       └──────────────────────┬───────────────────────┘
-                                              │
-                                              ▼
-                       ┌──────────────────────────────────────────────┐
-                       │      Post-Prediction Benchmark Evaluation    │
-                       │            (src/evaluation.py)               │
-                       └──────────────────────────────────────────────┘
+                      ┌────────────────────────────────────────────────────────┐
+                      │    Raw Multi-Format Ingestion (CSV / JSON / XML)       │
+                      │  • Network Telemetry: P2P Gossip, TCP 8333, Packets    │
+                      │  • Blockchain Ledger: UTXO Inputs/Outputs, Fees, Blocks│
+                      └───────────────────────────┬────────────────────────────┘
+                                                  │
+                                                  ▼
+                      ┌────────────────────────────────────────────────────────┐
+                      │     Offline GeoIP & Autonomous System (ASN) Vantage    │
+                      │        (MaxMind GeoLite2-Country & GeoLite2-ASN)       │
+                      └───────────────────────────┬────────────────────────────┘
+                                                  │
+                                                  ▼
+                      ┌────────────────────────────────────────────────────────┐
+                      │        IP ⟷ TXID ⟷ Wallet Multi-Modal Correlation      │
+                      │      (Normalized Mathematical Confidence Score: 0-100%)│
+                      └───────────────────────────┬────────────────────────────┘
+                                                  │
+                                                  ▼
+                      ┌────────────────────────────────────────────────────────┐
+                      │         NetworkX / Leiden Graph Intelligence           │
+                      │   • Directed Entity Graph Construction                 │
+                      │   • Leiden Algorithm: High-Density Modularity Partition│
+                      │   • Degree Centrality & High-Connectivity Hub Profiling│
+                      └───────────────────────────┬────────────────────────────┘
+                                                  │
+                                                  ▼
+                      ┌────────────────────────────────────────────────────────┐
+                      │    Dual AI/ML Detection & Behavioural Pattern Layer    │
+                      │   • Isolation Forest: Tree-Based Anomaly Scoring       │
+                      │   • HDBSCAN: Hierarchical Density & GLOSH Noise Points │
+                      │   • Peeling-Chain Traversal & CoinJoin Mixer Detectors │
+                      └───────────────────────────┬────────────────────────────┘
+                                                  │
+                                                  ▼
+                      ┌────────────────────────────────────────────────────────┐
+                      │          Multi-Layer Evidence Fusion Engine            │
+                      │    11 Independent Normalized Evidence Channels (0-100) │
+                      │         + TreeSHAP Mathematical Feature Attribution    │
+                      └───────────────────────────┬────────────────────────────┘
+                                                  │
+                                                  ▼
+                      ┌────────────────────────────────────────────────────────┐
+                      │         Investigator Case Triage & Action Layer        │
+                      │   • Case Grouping & Alert Deduplication (CASE-001...)  │
+                      │   • Chronological Forensic Evidence Timelines          │
+                      │   • Bounded Multi-Hop Investigation Path Reconstruction│
+                      │   • 1-Click Forensic Security Threat PDF Export        │
+                      └────────────────────────────────────────────────────────┘
 ```
 
----
+### 11-Channel Evidence Fusion Formula
+Composite risk scores ($0 - 100$) are calculated via deterministic multi-channel fusion:
 
-## 3. Dataset Description
+$$\text{Composite Risk} = \sum_{i=1}^{11} w_i \times E_i$$
 
-The dataset comprises **10,000 synthetic records** reflecting realistic Bitcoin network and ledger interactions:
-- **9,000 Normal Baseline Transactions** (90%)
-- **1,000 Anomalous Transactions** (10%) spanning 8 distinct attack/adversarial patterns (125 records each):
-  1. `rapid_chain`: High-velocity sequential wallet transfers with minimal inter-hop time gaps.
-  2. `fan_out`: Aggressive splitting of funds into numerous destination addresses (mixer distribution).
-  3. `fan_in`: Sudden consolidation of micro-utxos from multiple source wallets.
-  4. `cross_border_burst`: Transaction broadcasts hopping across multiple countries/ASNs in rapid bursts.
-  5. `high_frequency`: Botnet/automated transaction spikes within a short 24-hour window.
-  6. `high_connectivity`: High-degree hub wallets acting as central aggregation nodes.
-  7. `ip_wallet_reuse`: Unrelated wallet clusters originating from identical proxy/relay IP vantage points.
-  8. `layered_transfer`: Multi-hop obfuscation chains attempting to obscure origin of funds.
-
-### Key Fields:
-- **Network Fields:** `src_ip`, `dst_ip`, `src_port`, `dst_port`, `protocol`, `network_timestamp`, `connection_duration_sec`, `packet_count`, `bytes_transferred`.
-- **Blockchain Fields:** `txid`, `timestamp`, `block_height`, `input_addresses`, `output_addresses`, `input_amounts`, `output_amounts`, `total_input_amount_btc`, `total_output_amount_btc`, `fee_btc`, `num_inputs`, `num_outputs`, `script_type`, `source_wallet`, `destination_wallet`.
-- **Behavioral & Graph Fields:** `transaction_frequency_24h`, `avg_time_gap_min`, `wallet_degree`, `unique_ip_count`, `country_count`, `asn_count`.
-- **Post-Prediction Evaluation Fields:** `ground_truth`, `scenario`.
-
-> **Strict Machine Learning Separation:** `ground_truth` and `scenario` are strictly excluded from data ingestion, feature vectors, and model fitting. They are used exclusively in the post-prediction evaluation module.
+1. **Isolation Forest ML Score ($w_1 = 0.18$):** Unsupervised tree isolation depth.
+2. **HDBSCAN Density Clustering ($w_2 = 0.09$):** GLOSH noise outlier evidence ($\text{cluster} = -1$).
+3. **Leiden Community Risk ($w_3 = 0.09$):** Membership in elevated-risk modular graph partitions.
+4. **Peeling-Chain Evidence ($w_4 = 0.10$):** Multi-hop consecutive volume stripping indicators.
+5. **CoinJoin / Mixing Evidence ($w_5 = 0.09$):** Equal-denomination output clustering.
+6. **Temporal Velocity Evidence ($w_6 = 0.11$):** Ultra-short inter-hop time gaps ($\le 120\text{s}$) and burst spikes.
+7. **Behavioural Multi-IP Dispersion ($w_7 = 0.11$):** Broadcast hopping across multiple proxy/VPN IPs.
+8. **Graph Hub Degree Centrality ($w_8 = 0.08$):** Hub connectivity degree in the entity transaction graph.
+9. **Geo/ASN Vantage Dispersion ($w_9 = 0.07$):** Rapid broadcasts across international jurisdictions.
+10. **UTXO Transfer Volume & Fee Skew ($w_{10} = 0.08$):** Disproportionate transaction values and miner fee ratios.
+11. **Network Packet Burst Telemetry ($w_{11} = 0.00$):** Baseline network packet volume alignment.
 
 ---
 
-### 4. Two-Dataset Ingestion & Schema Validation
+## 4. 10-Tab Forensic Analyst Workbench
 
-The prototype ingests and validates two independent datasets:
-1. **Network-Layer Data:** P2P gossip telemetry, source/destination IPs, ports, connection duration, packet counts, bytes.
-2. **Blockchain-Layer Data:** On-chain ledger blocks, UTXO inputs/outputs, miner fees, and wallet addresses.
+The Streamlit workstation (`app.py`) provides an instant-response, 10-tab forensic interface:
 
-**Multi-Format Support:** Ingestion modules (`src/ingestion/`) support **CSV**, **JSON**, and **XML** formats natively without internet access. Both datasets must be independently schema-validated before investigation execution is enabled.
-
----
-
-## 5. Offline GeoIP & Network Enrichment
-
-Offline MaxMind GeoIP2/GeoLite2 integration (`src/geoip_enrichment.py`):
-- **Local Databases:** `data/geoip/GeoLite2-Country.mmdb` and `data/geoip/GeoLite2-ASN.mmdb`.
-- **Network Isolation:** Operates 100% locally with zero internet connections or external API calls.
-- **Strict Non-Fabrication:** Private, loopback, link-local, and synthetic IP ranges (e.g. `10.x.x.x`, `192.168.x.x`, `172.16-31.x.x`, `127.0.0.1`) strictly resolve to `Country = Unknown` and `ASN = Unknown`.
-- **Graceful Fallback:** If MMDB files are absent, the application falls back safely without runtime errors.
-
----
-
-## 6. Network–Blockchain Correlation & Confidence Score
-
-The correlation engine (`src/correlation/correlator.py`) establishes relationships:
-- $\text{IP} \rightarrow \text{TXID}$
-- $\text{TXID} \rightarrow \text{Input/Output Wallets}$
-- $\text{Wallet} \rightarrow \text{Wallet (Fund-flows)}$
-- $\text{IP} \rightarrow \text{Wallet (Network vantage point association)}$
-
-> **Non-Attribution Principle:** The system strictly treats IP addresses as *network observations associated with transaction/wallet activity*, never claiming that an IP address identifies the wallet owner.
-
-### Normalized Correlation Confidence Score (0.0 to 1.0 / 0–100%)
-A mathematical confidence measure distinct from anomaly and risk scores:
-1. **Exact TXID Match (45%):** Direct cryptographic transaction identifier alignment between telemetry and block data.
-2. **Temporal Proximity (30%):** Proximity between network packet broadcast timestamp and blockchain block confirmation timestamp ($\le 60\text{s} \rightarrow 30\%$, $\le 300\text{s} \rightarrow 25\%$, $\le 1800\text{s} \rightarrow 15\%$).
-3. **P2P Protocol Consistency (15%):** Verification of Bitcoin P2P protocol compliance and standard listening ports (8333, 18333, 38333) over TCP.
-4. **Observation Repeatability (10%):** Multi-burst verification across repeated network vantage points.
-
----
-
-## 7. Dual AI/ML & Graph Community Analytics
-
-### 1. Isolation Forest (Unsupervised Anomaly Detection)
-Identifies multi-dimensional behavioral and network anomalies without requiring labeled training datasets. Produces a continuous anomaly score $\in [0.0, 1.0]$.
-
-### 2. DBSCAN (Behavioural Clustering & Noise Discovery)
-Partitions transaction traffic into dense behavioral clusters using scaled feature space. Identifies unclustered noise points ($\text{cluster} = -1$) to detect isolated, aberrant transaction behaviors.
-
-### 3. Louvain Modularity Community Detection
-NetworkX directed entity graph partitions IP, TXID, and Wallet nodes into modular graph communities, calculating community density, entity counts, and internal link density.
-
-### 4. Multi-Layer Evidence Fusion & Risk Scoring (0–100)
-Combines 9 independent normalized evidence channels:
-- Isolation Forest Anomaly Evidence (20%)
-- DBSCAN Clustering & Noise Evidence (10%)
-- Louvain Graph Community Modularity (10%)
-- Temporal Velocity Evidence (12%)
-- Behavioural Dispersion Evidence (13%)
-- Graph Degree Centrality (10%)
-- Geo/ASN Multi-Vantage Evidence (8%)
-- Blockchain UTXO Volume & Fee Evidence (9%)
-- Network Telemetry Burst Evidence (8%)
-
----
-
-## 8. Investigator-Centric Capabilities
-
-### 1. Investigation Path Reconstruction (`src/investigation/path_reconstruction.py`)
-Rather than presenting isolated alerts, the system reconstructs the connected multi-hop investigation trail:
-$$\text{Source IP} \xrightarrow{\text{network observation}} \text{TXID} \xrightarrow{\text{input / output}} \text{Wallet} \xrightarrow{\text{fund-flow}} \text{Related Wallet} \xrightarrow{\text{connected transaction}} \text{Next TXID}$$
-- **Configurable Traversal Depth:** Bounded search depth (1 to 5 hops, default 3) to prevent UI freezing and graph explosion.
-- **Priority Ranking:** Ranks paths by composite transaction risk, transfer amounts, and connection relevance.
-- **Strict Non-Attribution Semantics:** Treats IP addresses strictly as *network observations associated with transaction broadcast activity*, never asserting wallet ownership.
-- **UI Location:** Accessible in Tab 2 (Forensic Transaction Deep-Dive) and within each Case Drill-Down view.
-
-### 2. Forensic Evidence Timeline (`src/investigation/timeline_builder.py`)
-Reconstructs a strictly chronological activity sequence answering: *"What happened first? What happened next? When did suspicious behaviour emerge?"*
-- **Actual Timestamps Only:** Built strictly from real dataset timestamps (`network_timestamp`, `timestamp`). No fabricated or synthetic system times.
-- **Event Types Captured:**
-  - `NETWORK_OBSERVATION`: P2P gossip broadcast observed at source IP vantage point.
-  - `TRANSACTION_OBSERVED`: On-chain confirmation with block height, transfer volume, and miner fee.
-  - `INPUT_FUNDING`: Source wallet providing input UTXOs.
-  - `OUTPUT_DISPERSAL`: Transaction dispersing funds to destination wallet.
-  - `BEHAVIOURAL_CLUSTERING`: Unsupervised DBSCAN cluster membership or sparse noise detection (-1).
-  - `INVESTIGATION_ALERT`: Multi-layer fusion generating High/Critical risk alerts with key forensic signals.
-- **Case Timeline Aggregation:** Chronologically merges events across multiple related transactions in an incident.
-- **UI Location:** Accessible in Tab 2 (Forensic Transaction Deep-Dive) and within each Case Drill-Down view.
-
-### 3. Alert Deduplication & Case Grouping (`src/investigation/case_grouping.py`)
-Solves alert fatigue by consolidating strongly connected anomalous transactions into cohesive investigation cases (`CASE-001`, `CASE-002`, ...):
-- **Deterministic Grouping Evidence:**
-  1. *Shared Source / Destination Wallets:* Multiple anomalous transactions utilizing identical wallet entities.
-  2. *Sequential Fund-Flow Chains:* Direct on-chain linkage where the output of transaction A feeds the input of transaction B.
-  3. *Temporal Network Correlation:* Transactions broadcast from the same network IP within a tight temporal window ($\le 2$ hours).
-  4. *Dense Behavioural DBSCAN Clusters:* Common membership in dense behavioural clusters within close temporal proximity ($\le 4$ hours).
-- **Linear-Time Graph Clustering:** $O(N)$ star and temporal path construction across inverted indices for instant sub-second grouping.
-- **Stable Session Case IDs:** Deterministically sorted by maximum risk score, transaction count, and volume.
-- **Investigation Cases Dashboard:** Dedicated view in Tab 6 providing case summary KPIs, multi-transaction filtering, grouped transaction tables, case path reconstruction, and case evidence timelines.
-
----
-
-
-## 9. Forensic PDF Threat Report Generation
-
-Built with **ReportLab**, the system generates comprehensive forensic security threat reports directly from Tab 6:
-- **Single PDF, Complete Anomaly Coverage:** Generates one unified PDF containing individual forensic reports for all anomalous transactions.
-- **Filter Independence:** Always includes the complete set of anomalies regardless of the currently active UI risk filter.
-- **Structured Forensic Template:** Each transaction includes:
-  - **PROFILE:** Report ID, TXID, Risk Level, Date, Time.
-  - **ACTORS:** Source IP, Destination IP, Wallet, Country (with ISO code), ASN (with Organization).
-  - **DIAGNOSTIC:** Data-driven "Why Anomalous" evidence, Anomaly Score, Risk Score.
-  - **RECOMMENDED ACTIONS:** Wallet tracing, counterparty inspection, and entity monitoring.
-  - **REMARKS:** Risk-level specific investigative notes.
-
----
-
----
-
-## 10. Scalable Enterprise Offline Architecture & Upgrades
-
-This prototype includes production-grade enterprise components engineered specifically for air-gapped, high-throughput national security environments:
-
-### A. Local PostgreSQL Persistence & Connection Pooling (`src/database/db_manager.py`)
-- **Engine:** PostgreSQL 18 connection with `QueuePool` connection pooling (`pool_size=10`, `max_overflow=20`, `pool_recycle=1800s`).
-- **Automatic Indexing:** Automatically creates optimized B-tree indexes on `transactions(txid, src_ip, source_wallet, destination_wallet, risk_level, is_anomaly)` and `alerts(txid, priority)`.
-- **Graceful Failover:** Seamlessly operates on local SQLite database (`data/bitcoin_monitoring.db`) if PostgreSQL is unavailable.
-- **Migration Script:** `scripts/migrate_sqlite_to_postgres.py` transfers historical SQLite data into PostgreSQL with a single command.
-
-### B. HDBSCAN Density-Based Behavioural Clustering (`src/clustering/hdbscan_clustering.py`)
-- **Hierarchical Density:** Upgrades traditional DBSCAN by discovering clusters of varying density without requiring a rigid global epsilon distance parameter.
-- **Continuous Outlier Scoring:** Extracts GLOSH (Global-Local Outlier Score from Hierarchies) to compute fine-grained normalized evidence scores ($0.0 - 1.0$) for sparse clusters and noise points ($-1$).
-
-### C. Leiden Graph Community Detection (`src/graph/leiden_community.py`)
-- **Backend:** High-performance C-based `igraph` engine with `leidenalg`.
-- **Guaranteed Connectivity:** Resolves Louvain's tendency to produce internally disconnected communities, guaranteeing well-connected multi-entity community partitions across IPs, Wallets, and TXIDs.
-
-### D. Neo4j Graph Database Integration (`src/graph/neo4j_manager.py`)
-- **Bolt Protocol:** Connects to local Neo4j graph database instances with batched Cypher `UNWIND` synchronization.
-- **In-Memory Fallback:** When Neo4j is offline, the system runs with zero downtime on in-memory NetworkX directed graphs.
-
-### E. TreeSHAP Explainability (`src/explainability/shap_explainer.py`)
-- **Mathematical Attribution:** Uses `shap.TreeExplainer` on surrogate decision trees for path-dependent Shapley values.
-- **Global & Local Insights:** Computes global feature importance rankings and single-transaction waterfall feature contributions.
-
-### F. Datashader Offline Rasterization (`src/visualization/datashader_renderer.py`)
-- **Massive Point Density:** Rapidly renders hundreds of thousands of network telemetry data points into 2D density heatmaps and base64-encoded PNGs without browser lag. Operates 100% offline.
-
-### G. FastAPI Enterprise REST API & Offline React 18 Dashboard
-- **REST Service:** High-speed asynchronous FastAPI service (`src/api/main.py`) exposing all 9 investigation modules.
-- **Air-Gapped React Dashboard:** Self-contained, zero-CDN forensic dashboard pre-built in `frontend/dist/index.html` with dark cyber theme, live KPI cards, interactive alerts, and offline AI chatbot interface.
-
-### H. Behavioural Pattern Detection (`src/patterns/`)
-- **Peeling-Chain Detection (`src/patterns/peeling_chain_detector.py`):** Identifies sequential fund-peeling chains across multi-hop transactions using structural graph traversal, single-continuation volume constraints, amount continuity bounded by miner fee limits, and hop position indexing. Integrates as a 6th grouping criterion in `AlertCaseGrouper` and emits `PEELING_CHAIN` evidence timeline events.
-- **CoinJoin-Like / Mixing Pattern Detection (`src/patterns/coinjoin_detector.py`):** Detects anonymisation and mixing indicators using multi-condition structural analysis: minimum input/output participant counts, equal-denomination output clustering within configurable BTC tolerance, equal-output ratio thresholds, and strict exclusion of simple fan-in consolidations or single-dominant-input transfers. Emits `COINJOIN_LIKE` evidence timeline events.
-- **Unified 11-Channel Evidence Fusion (`src/fusion/evidence_fusion.py`):** Adds `peeling_chain_evidence` and `coinjoin_evidence` as first-class channels to the Multi-Layer Evidence Fusion Engine, renormalized to guarantee sum = 1.0.
-- **Defensive Language Compliance:** All detector outputs are strictly classified as *investigation evidence* and *behavioural indicators*, never criminal verdicts, with audit-ready non-attribution notes.
-
----
-
-## 11. Ubuntu / Linux & Windows Execution Guide
-
-### Windows (PowerShell)
-```powershell
-# Setup environment and verify air-gapped readiness
-.\setup_offline_environment.ps1
-
-# Run air-gapped test suite
-python tests/test_offline_readiness.py
-
-# Launch both FastAPI + React Dashboard and Streamlit Dashboard
-.\start_offline_system.ps1
+```
+[📥 0. Ingestion]  [📊 1. Overview]  [🔍 2. Investigation]  [🕸️ 3. Correlation]  [📈 4. Graph Analytics]
+[🤖 5. AI Anomaly] [🚨 6. Ranked Alerts] [🎯 7. Evaluation] [💬 8. Assistant]   [🔗 9. Patterns]
 ```
 
-### Ubuntu / Linux (Bash)
+### Tab 0: Two-Layer Dataset Ingestion & Multi-Format Support
+- Ingests **Network-Layer** (P2P gossip telemetry) and **Blockchain-Layer** (UTXO on-chain transactions) independently.
+- Native parsing of **CSV**, **JSON**, and **XML** formats with independent schema validation.
+- Multi-dataset accumulation mode allows uploading multiple files sequentially without overwriting previous evidence.
+
+### Tab 1: Executive Overview & SOC KPIs
+- High-level telemetry metrics: Total Monitored Transactions, Detected Anomalies, Critical Risk Alerts, and Mean Correlation Confidence.
+- Global Choropleth Map visualizing broadcast vantage points across countries and Autonomous Systems (ASNs).
+- Temporal anomaly burst velocity chart over rolling 7-day intervals.
+
+### Tab 2: Forensic Transaction Deep-Dive & Timeline
+- Complete transaction dossier for any selected TXID: UTXO inputs/outputs, fee ratios, and GeoIP vantage details.
+- **TreeSHAP Waterfall Plot:** Displays the mathematical positive/negative feature contributions driving the risk score.
+- **Chronological Evidence Timeline:** Step-by-step forensic progression from network packet broadcast to blockchain confirmation.
+- **1-Click PDF Generation:** Instant download of a court-admissible forensic security threat report.
+
+### Tab 3: IP–TXID–Wallet Multi-Modal Correlation
+- Maps the cross-layer linkages connecting network-layer observations to on-chain financial entities.
+- Computes the **Normalized Correlation Confidence Score** (0–100%) factoring cryptographic TXID alignment (45%), temporal proximity $\le 60$s (30%), P2P TCP port adherence (15%), and vantage repeatability (10%).
+- Enforces strict **Non-Attribution Semantics**: explicitly documents that IP vantage points reflect network broadcast observation, not verified wallet ownership.
+
+### Tab 4: Interactive Graph Analytics & Leiden Communities
+- Directed tripartite NetworkX entity graph visualizing financial fund-flows and network broadcasts.
+- **Leiden Community Partitioning:** Automatically clusters connected entities into modular communities while guaranteeing internal subgraph connectivity.
+- High-degree entity identification (detecting mixing hubs, peel routers, and high-connectivity nodes).
+
+### Tab 5: AI Anomaly Analysis (Dual-ML Architecture)
+- **Isolation Forest:** Distribution histograms of continuous anomaly scores and anomaly decision boundaries.
+- **HDBSCAN Behavioural Clustering:** Hierarchical cluster membership bar charts, identifying dense behavioral groups and unclustered noise points.
+
+### Tab 6: Prioritized Ranked Alerts & Automated Case Grouping
+- **Ranked Investigation Queue:** Live triage feed sorted strictly by composite risk score descending, with exact risk-tier filtering (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`).
+- **Automated Case Grouping (`CASE-001`, `CASE-002`, ...):** Eliminates alert fatigue by deterministically consolidating strongly connected transactions sharing identical wallets, sequential peeling flows, or temporal IP correlations.
+- **Case Consolidated Timeline & Path:** Reconstructs the end-to-end multi-hop trail across all transactions in a case.
+- **Unified PDF Dossier Export:** Batch-generates forensic PDF reports for all anomalous cases with a single click.
+
+### Tab 7: Benchmark Evaluation & Ground Truth Validation
+- Comprehensive evaluation metrics against synthetic ground truth: Precision, Recall, F1-Score, and ROC-AUC.
+- Detailed scenario detection matrix across 8 attack patterns (`rapid_chain`, `fan_out`, `fan_in`, `cross_border_burst`, `high_frequency`, `high_connectivity`, `ip_wallet_reuse`, `layered_transfer`).
+
+### Tab 8: Offline AI Investigation Assistant
+- 100% air-gapped conversational intelligence powered by local rule-based knowledge retrieval and local LLM fallbacks.
+- Allows investigators to query: *"Why is this IP address suspicious?"*, *"Explain the risk breakdown for TXID X"*, or *"Summarize CASE-001"*.
+
+### Tab 9: Behavioural Patterns (Peeling Chains & CoinJoin Mixers)
+- Dedicated heuristic telemetry identifying multi-hop fund-peeling chains and equal-denomination CoinJoin mixing pools.
+- Visual breakdown of peeling chain hop indices, remaining change amounts, and mixer participant counts.
+
+---
+
+## 5. Desktop Application Packaging (100% Offline)
+
+For deployment on classified, air-gapped workstations (e.g., NTRO / Law Enforcement forensic labs), the workstation runs as a native desktop application with dedicated window controls, without browser tabs or URL bars:
+
+```
+┌────────────────────────────────────────────────────────┐
+│  🛡️ NTRO - AI Bitcoin Forensic Workstation  [-] [□] [X]│
+├────────────────────────────────────────────────────────┤
+│  [📥 Ingestion] [📊 Overview] [🔍 Investigation] ...   │
+│                                                        │
+│  [ Full Screen Native Air-Gapped Forensic Desktop ]    │
+│                                                        │
+└────────────────────────────────────────────────────────┘
+```
+
+### Dedicated Launchers Provided:
+- [**`launch_desktop.bat`**](file:///c:/Users/shrey/OneDrive/Desktop/Bitcoin%20Monitoring/launch_desktop.bat): One-click Windows desktop launcher with automatic port detection and HTTP readiness handshake.
+- [**`launch_silent.vbs`**](file:///c:/Users/shrey/OneDrive/Desktop/Bitcoin%20Monitoring/launch_silent.vbs): Launches the desktop application completely silently without leaving a black terminal window open.
+- [**`create_desktop_shortcut.bat`**](file:///c:/Users/shrey/OneDrive/Desktop/Bitcoin%20Monitoring/create_desktop_shortcut.bat): Automatically places a branded shortcut titled **`NTRO Bitcoin Forensic Workstation`** on the Windows Desktop.
+- [**`launch_linux.sh`**](file:///c:/Users/shrey/OneDrive/Desktop/Bitcoin%20Monitoring/launch_linux.sh): Shell script for Ubuntu / Debian / RHEL workstations with execution permissions.
+- [**`desktop_app.py`**](file:///c:/Users/shrey/OneDrive/Desktop/Bitcoin%20Monitoring/desktop_app.py): Core Python wrapper supporting dual-mode: Win32 native `pywebview` or native frameless Chromium/Edge app-mode.
+
+---
+
+## 6. Quickstart & Installation Guide
+
+### Prerequisites
+- Python 3.10, 3.11, 3.12, or 3.14.
+- Git.
+- Optional: PostgreSQL 16+ and Neo4j (system automatically falls back to SQLite3 and NetworkX if not installed).
+
+### Installation
 ```bash
-# Setup environment and verify air-gapped readiness
-chmod +x setup_offline_environment.sh start_offline_system.sh
-./setup_offline_environment.sh
+# Clone the repository
+git clone https://github.com/asifbuilds45/bitcoin-transaction-monitoring.git
+cd bitcoin-transaction-monitoring
 
-# Run air-gapped test suite
-python3 tests/test_offline_readiness.py
+# Create and activate virtual environment
+python -m venv venv
+# On Windows:
+.\venv\Scripts\activate
+# On Linux / macOS:
+source venv/bin/activate
 
-# Launch all services
+# Install required dependencies
+pip install -r requirements.txt
+```
+
+### Running the System
+
+#### Option 1: Native Desktop Application (Windows)
+Double-click [**`launch_desktop.bat`**](file:///c:/Users/shrey/OneDrive/Desktop/Bitcoin%20Monitoring/launch_desktop.bat) or run:
+```powershell
+python desktop_app.py
+```
+
+#### Option 2: Linux / Ubuntu Workstation
+```bash
+chmod +x launch_linux.sh
+./launch_linux.sh
+```
+
+#### Option 3: Standard Browser Streamlit Execution
+```bash
+streamlit run app.py
+```
+
+#### Option 4: Full Enterprise Stack (FastAPI + Static Frontend + Streamlit)
+```powershell
+# Windows PowerShell:
+.\start_offline_system.ps1
+
+# Linux Bash:
 ./start_offline_system.sh
 ```
 
 ---
 
-## 11. Research & Defensive Disclaimer
+## 7. Air-Gapped Test Suite & Verification
 
+The codebase includes an automated test suite verifying that all modules function 100% offline without external network dependencies:
 
-> [!NOTE]
-> Developed strictly for defensive cybersecurity monitoring and investigation under SIH / NTRO Problem Statement 26146. All analysis operates on local synthetic datasets and local MaxMind databases with zero external connectivity.
+```bash
+# Run comprehensive air-gapped readiness test suite
+pytest tests/test_offline_readiness.py -v
+```
+
+### Automated Verification Coverage (8/8 Passed):
+- `test_01_database_postgresql_persistence_and_indexes`: PostgreSQL connection pool & SQLite fallback.
+- `test_02_hdbscan_clustering`: HDBSCAN fit, predict, and GLOSH outlier scoring.
+- `test_03_leiden_graph_community_detection`: Leiden partition quality and guaranteed connectivity.
+- `test_04_neo4j_manager_fallback`: Neo4j Bolt driver connectivity & graceful NetworkX fallback.
+- `test_05_treeshap_explainability`: TreeSHAP surrogate explainer & waterfall attribution.
+- `test_06_datashader_renderer`: Offline 2D density rasterization.
+- `test_07_fastapi_endpoints_and_react_static`: FastAPI endpoints & static frontend serving.
+- `test_08_offline_ai_assistant`: Knowledge retrieval engine without cloud API connectivity.
+
+---
+
+## 8. Repository Structure
+
+```text
+bitcoin-transaction-monitoring/
+├── app.py                             # Primary 10-Tab Forensic Streamlit Workstation
+├── desktop_app.py                     # Native Desktop Application Runner
+├── launch_desktop.bat                 # Windows One-Click Batch Launcher
+├── launch_silent.vbs                  # Windows Silent Background Launcher
+├── launch_linux.sh                    # Linux / Ubuntu Executable Launcher
+├── create_desktop_shortcut.bat        # Automated Desktop Icon Creator
+├── requirements.txt                   # Complete Python dependencies
+├── README.md                          # Comprehensive Technical Documentation
+├── data/
+│   ├── network_traffic_dataset.csv    # 10,000-record Network Telemetry Benchmark
+│   ├── blockchain_transactions_dataset.csv # 10,000-record Blockchain UTXO Benchmark
+│   ├── bitcoin_monitoring.db          # Offline SQLite3 Database
+│   └── geoip/
+│       ├── GeoLite2-Country.mmdb      # Offline Country Database (MaxMind)
+│       └── GeoLite2-ASN.mmdb          # Offline Autonomous System Database (MaxMind)
+├── frontend/                          # Offline React / HTML5 Cyber Dashboard
+│   ├── index.html                     # Standalone Zero-CDN Air-Gapped UI
+│   └── package.json
+├── src/
+│   ├── api/                           # FastAPI REST Engine (src/api/main.py)
+│   ├── assistant/                     # Offline AI Assistant & Knowledge Retriever
+│   ├── behavioural/                   # Behavioural Fingerprinting & Heuristics
+│   ├── clustering/                    # HDBSCAN & DBSCAN Clustering Engines
+│   │   ├── hdbscan_clustering.py      # HDBSCAN + GLOSH Outlier Engine
+│   │   └── dbscan_clustering.py       # Fallback Density Clustering
+│   ├── correlation/                   # IP-TXID-Wallet Correlation & Confidence Scorer
+│   ├── database/                      # SQLAlchemy & Database Manager (PostgreSQL/SQLite)
+│   ├── explainability/                # TreeSHAP Surrogate Explainer
+│   ├── fusion/                        # 11-Channel Evidence Fusion Engine
+│   ├── geoip_enrichment.py            # Local MaxMind MMDB Parser
+│   ├── graph/                         # Graph Analytics & Community Detection
+│   │   ├── graph_engine.py            # NetworkX Directed Entity Graph
+│   │   ├── leiden_community.py        # Leiden Modularity Partitioning Engine
+│   │   └── neo4j_manager.py           # Neo4j Bolt Sync & Fallback
+│   ├── ingestion/                     # Multi-Format Ingestors (CSV, JSON, XML)
+│   ├── investigation/                 # Case Grouping, Paths & Timeline Builders
+│   ├── patterns/                      # Peeling Chain & CoinJoin Detectors
+│   ├── reporting/                     # ReportLab Forensic PDF Dossier Generator
+│   ├── risk_scoring.py                # Holistic 0-100 Risk Engine & Ranked Alert Queue
+│   └── visualization/                 # Datashader Offline Rasterization Engine
+└── tests/                             # Automated Air-Gapped Test Suite
+    ├── test_offline_readiness.py      # Core 8-Point Air-Gapped Verification
+    ├── test_dataset_refresh.py        # Multi-Dataset Ingestion Tests
+    ├── test_pattern_detection.py      # Peeling Chain & CoinJoin Tests
+    └── test_pipeline.py               # End-to-End Pipeline Regression Tests
+```
+
+---
+
+## 9. Research & Defensive Compliance Disclaimer
+
+> [!IMPORTANT]
+> **Defensive Cybersecurity & Intelligence Scope:**
+> Developed strictly for defensive cybersecurity monitoring, forensic anomaly detection, and lawful financial transaction analysis under **NTRO Problem Statement ID: 26146**. All analyses are performed on local synthetic datasets and offline MaxMind databases with zero external network connectivity. In adherence to forensic best practices, all system outputs (IP linkages, behavioural clusters, and pattern detections) are classified strictly as **investigative leads and corroborating evidence**, maintaining strict non-attribution principles for court and regulatory admissibility.
+
+---
+**Author / Team:** asifbuilds45  
+**Project:** AI-Powered Monitoring & Analysis of Bitcoin Transaction Traffic  
+**Repository:** [https://github.com/asifbuilds45/bitcoin-transaction-monitoring](https://github.com/asifbuilds45/bitcoin-transaction-monitoring)
