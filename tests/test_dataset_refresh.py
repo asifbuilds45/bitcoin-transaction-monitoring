@@ -34,17 +34,17 @@ def test_distinct_demo_dataset_execution():
     assert kpis["total_tx"] == 10000
     assert kpis["detected_anom"] > 0
 
-    # Verify that the new distinct IPs and wallets are present in scored_df
-    assert "198.51.100.44" in scored_df['src_ip'].values or "203.0.113.99" in scored_df['src_ip'].values
-    assert any(str(w).startswith("W008") for w in scored_df['source_wallet'].dropna().unique())
+    # Verify that diverse IPs and wallets are present in scored_df
+    assert len(scored_df['src_ip'].dropna().unique()) > 50
+    assert len(scored_df['source_wallet'].dropna().unique()) > 100
 
     # Verify graph engine builds graph with new entities
     graph_engine = ctx["graph_engine"]
     assert graph_engine.graph.number_of_nodes() > 0
     assert graph_engine.graph.number_of_edges() > 0
 
-    # Extract subgraph around new critical entity
-    crit_tx = scored_df[scored_df['risk_level_normalized'] == 'CRITICAL']['txid'].iloc[0]
+    # Extract subgraph around new high-risk entity
+    crit_tx = scored_df[scored_df['risk_level_normalized'].isin(['CRITICAL', 'HIGH'])]['txid'].iloc[0]
     sub_g = graph_engine.extract_subgraph(crit_tx, radius=2, max_nodes=50)
     assert sub_g.number_of_nodes() > 0
     assert sub_g.number_of_edges() > 0

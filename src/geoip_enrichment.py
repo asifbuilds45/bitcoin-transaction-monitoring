@@ -347,6 +347,53 @@ class GeoIPEnricher:
             df_enriched['geoip_dst_asn'] = 'Unknown'
             df_enriched['geoip_dst_org'] = 'Unknown'
 
+        # Ensure standard column names are populated from offline GeoIP resolution
+        if 'src_country' not in df_enriched.columns or (df_enriched['src_country'].isin(['UNKNOWN', 'Unknown'])).all():
+            df_enriched['src_country'] = df_enriched['geoip_src_country']
+        else:
+            df_enriched['src_country'] = df_enriched['geoip_src_country'].where(
+                df_enriched['geoip_src_country'] != 'Unknown',
+                df_enriched['src_country']
+            )
+
+        if 'dst_country' not in df_enriched.columns or (df_enriched['dst_country'].isin(['UNKNOWN', 'Unknown'])).all():
+            df_enriched['dst_country'] = df_enriched['geoip_dst_country']
+        else:
+            df_enriched['dst_country'] = df_enriched['geoip_dst_country'].where(
+                df_enriched['geoip_dst_country'] != 'Unknown',
+                df_enriched['dst_country']
+            )
+
+        if 'src_asn' not in df_enriched.columns or (df_enriched['src_asn'].isin(['UNKNOWN', 'Unknown'])).all():
+            df_enriched['src_asn'] = df_enriched['geoip_src_asn']
+        else:
+            df_enriched['src_asn'] = df_enriched['geoip_src_asn'].where(
+                df_enriched['geoip_src_asn'] != 'Unknown',
+                df_enriched['src_asn']
+            )
+
+        if 'dst_asn' not in df_enriched.columns or (df_enriched['dst_asn'].isin(['UNKNOWN', 'Unknown'])).all():
+            df_enriched['dst_asn'] = df_enriched['geoip_dst_asn']
+        else:
+            df_enriched['dst_asn'] = df_enriched['geoip_dst_asn'].where(
+                df_enriched['geoip_dst_asn'] != 'Unknown',
+                df_enriched['dst_asn']
+            )
+
+        if 'country_count' not in df_enriched.columns:
+            if 'source_wallet' in df_enriched.columns and 'src_country' in df_enriched.columns:
+                c_map = df_enriched.groupby('source_wallet')['src_country'].nunique().to_dict()
+                df_enriched['country_count'] = df_enriched['source_wallet'].map(c_map).fillna(1).astype(int)
+            else:
+                df_enriched['country_count'] = 1
+
+        if 'asn_count' not in df_enriched.columns:
+            if 'source_wallet' in df_enriched.columns and 'src_asn' in df_enriched.columns:
+                a_map = df_enriched.groupby('source_wallet')['src_asn'].nunique().to_dict()
+                df_enriched['asn_count'] = df_enriched['source_wallet'].map(a_map).fillna(1).astype(int)
+            else:
+                df_enriched['asn_count'] = 1
+
         return df_enriched
 
     def close(self) -> None:

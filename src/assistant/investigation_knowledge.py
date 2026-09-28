@@ -149,20 +149,20 @@ class InvestigationKnowledgeStore:
 
                 # Behavioural Pattern Detection
                 "peeling_chain_pattern": {
-                    "detected": bool(row.get("peeling_chain_detected", False)),
-                    "evidence_score": float(row.get("peeling_chain_evidence", 0.0)),
-                    "chain_id": str(row.get("peeling_chain_id", "")),
-                    "position": int(row.get("peeling_chain_position", 0)),
-                    "chain_length": int(row.get("peeling_chain_length", 0)),
-                    "reasons": str(row.get("peeling_chain_reasons", "")),
+                    "detected": bool(row.get("peeling_chain_detected", False)) if pd.notna(row.get("peeling_chain_detected")) else False,
+                    "evidence_score": float(row.get("peeling_chain_evidence", 0.0)) if pd.notna(row.get("peeling_chain_evidence")) else 0.0,
+                    "chain_id": str(row.get("peeling_chain_id", "")) if pd.notna(row.get("peeling_chain_id")) else "",
+                    "position": int(row.get("peeling_chain_position", 0)) if pd.notna(row.get("peeling_chain_position")) else 0,
+                    "chain_length": int(row.get("peeling_chain_length", 0)) if pd.notna(row.get("peeling_chain_length")) else 0,
+                    "reasons": str(row.get("peeling_chain_reasons", "")) if pd.notna(row.get("peeling_chain_reasons")) else "",
                 },
                 "coinjoin_pattern": {
-                    "detected": bool(row.get("coinjoin_detected", False)),
-                    "evidence_score": float(row.get("coinjoin_evidence", 0.0)),
-                    "equal_output_count": int(row.get("coinjoin_equal_output_count", 0)),
-                    "equal_output_ratio": float(row.get("coinjoin_equal_output_ratio", 0.0)),
-                    "equal_amount_btc": float(row.get("coinjoin_equal_amount_btc", 0.0)),
-                    "reasons": str(row.get("coinjoin_reasons", "")),
+                    "detected": bool(row.get("coinjoin_detected", False)) if pd.notna(row.get("coinjoin_detected")) else False,
+                    "evidence_score": float(row.get("coinjoin_evidence", 0.0)) if pd.notna(row.get("coinjoin_evidence")) else 0.0,
+                    "equal_output_count": int(row.get("coinjoin_equal_output_count", 0)) if pd.notna(row.get("coinjoin_equal_output_count")) else 0,
+                    "equal_output_ratio": float(row.get("coinjoin_equal_output_ratio", 0.0)) if pd.notna(row.get("coinjoin_equal_output_ratio")) else 0.0,
+                    "equal_amount_btc": float(row.get("coinjoin_equal_amount_btc", 0.0)) if pd.notna(row.get("coinjoin_equal_amount_btc")) else 0.0,
+                    "reasons": str(row.get("coinjoin_reasons", "")) if pd.notna(row.get("coinjoin_reasons")) else "",
                 },
             }
 

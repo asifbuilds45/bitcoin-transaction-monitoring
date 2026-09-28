@@ -39,6 +39,8 @@ class RiskScoringEngine:
         fused_score, breakdown, reasons = self.fusion_engine.compute_record_fused_evidence(row)
         
         # Convert fused score (0.0 - 1.0) into 0 - 100 integer Risk Score
+        if pd.isna(fused_score):
+            fused_score = 0.0
         final_score = int(np.clip(np.round(fused_score * 100.0), 0, 100))
 
         # Risk Tiers

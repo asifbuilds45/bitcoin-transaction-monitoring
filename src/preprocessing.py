@@ -13,13 +13,12 @@ REQUIRED_COLUMNS = [
     'txid', 'timestamp', 'block_height', 'time_step', 'src_ip', 'dst_ip',
     'src_port', 'dst_port', 'protocol', 'network_timestamp',
     'connection_duration_sec', 'packet_count', 'bytes_transferred',
-    'src_country', 'dst_country', 'src_asn', 'dst_asn',
     'input_addresses', 'output_addresses', 'input_amounts', 'output_amounts',
     'total_input_amount_btc', 'total_output_amount_btc', 'fee_btc',
     'num_inputs', 'num_outputs', 'script_type',
     'source_wallet', 'destination_wallet',
     'transaction_frequency_24h', 'avg_time_gap_min', 'wallet_degree',
-    'unique_ip_count', 'country_count', 'asn_count',
+    'unique_ip_count',
     'ground_truth', 'scenario'
 ]
 
@@ -117,6 +116,13 @@ def preprocess_data(df_raw: pd.DataFrame) -> pd.DataFrame:
     if df['network_timestamp'].isna().any():
         df['network_timestamp'] = df['timestamp']
         
+    for c in ['src_country', 'dst_country', 'src_asn', 'dst_asn']:
+        if c not in df.columns:
+            df[c] = 'Unknown'
+    for c in ['country_count', 'asn_count']:
+        if c not in df.columns:
+            df[c] = 1
+
     # 3. Numeric type casting and missing value handling
     for col in NUMERIC_COLUMNS:
         df[col] = pd.to_numeric(df[col], errors='coerce')

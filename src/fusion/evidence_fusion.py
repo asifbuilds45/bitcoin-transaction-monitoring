@@ -95,8 +95,11 @@ class MultiLayerEvidenceFusionEngine:
         # 7. Geo/ASN Evidence
         src_country = str(row.get('src_country', ''))
         dst_country = str(row.get('dst_country', ''))
-        country_cnt = float(row.get('country_count', 1))
+        raw_cc = row.get('country_count', 1)
+        country_cnt = 1.0 if pd.isna(raw_cc) else float(raw_cc)
         geo_score = min((country_cnt - 1) / 4.0 + (0.2 if src_country != dst_country else 0.0), 1.0)
+        if pd.isna(geo_score):
+            geo_score = 0.0
         breakdown['geo_asn_evidence'] = float(np.clip(geo_score, 0.0, 1.0))
         if country_cnt >= 3:
             top_reasons.append(f"International infrastructure across {int(country_cnt)} countries")
@@ -142,6 +145,8 @@ class MultiLayerEvidenceFusionEngine:
 
 
         fused_score = sum(breakdown[k] * self.weights.get(k, 0.0) for k in breakdown)
+        if pd.isna(fused_score):
+            fused_score = 0.0
         clamped_fused = float(np.clip(fused_score, 0.0, 1.0))
 
         return clamped_fused, breakdown, top_reasons

@@ -197,11 +197,7 @@ def parse_and_validate_network_data(
 
     # 6. String / Categorical Normalization
     string_defaults = {
-        'protocol': 'TCP',
-        'src_country': 'UNKNOWN',
-        'dst_country': 'UNKNOWN',
-        'src_asn': 'UNKNOWN',
-        'dst_asn': 'UNKNOWN'
+        'protocol': 'TCP'
     }
 
     for col, default_val in string_defaults.items():
